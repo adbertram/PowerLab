@@ -1,0 +1,56 @@
+<PowerLab>
+	<Configuration>
+		<Project Name="PowerLab" />
+		<Database Name="PowerLab">
+			<Instance Name=".\PowerLab" />
+			<Tables>
+				<Table Name="VMs">
+					<Columns>
+						<Column Name="VMID" PrimaryKey="Yes" Index="Yes" Type="int" />
+						<Column Name="Name" Type="varchar100"/>
+						<Column Name="OperatingSystem" Type="varchar100"/>
+						<Column Name="VMGroup" Type="varchar100" />
+						<Column Name="CreationDate" Type="datetime" />
+						<Column Name="LastAction" Type="varchar100" />
+					</Columns>
+				</Table>
+			</Tables>
+		</Database>
+		<Folders>
+			<!-- This is the base folder that will be created on the host server that will contains all files needed -->
+			<Folder Name="PowerLabRoot" Location="HostServer" Required="No" Path="C:\Lab"/>
+			<!-- This is the folder on your local machine that has ISOs for all OSes you will be using -->
+			<Folder Name="ISO" Location="Local" ToCopyToHostServer="Yes" Required="Yes" Path="C:\Lab\ISOs"/>
+			<Folder Name="ISO" Location="HostServer" ToCopyToHostServer="No" Required="No" Path="C:\Lab\ISOs" />
+			<!-- This is the folder on your local machine that has all of the autounattend XML files for VM OS installation -->
+			<Folder Name="UnattendXml" Location="Local" ToCopyToHostServer="Yes" Required="Yes" Path="C:\Dropbox\Powershell\GitRepos\PowerLab\AutoUnattend"/>
+			<Folder Name="UnattendXml" Location="HostServer" Required="No" Path="C:\Lab\AutoUnattend"/>
+		</Folders>
+		<Files>
+			<File Name="ISO to VHD Conversion Script" Location="Local" Required="Yes" Path="C:\Dropbox\Powershell\GitRepos\PowerLab\PowerLab\Convert-WindowsImage.ps1"/>
+			<File Name="ISO to VHD Conversion Script" Location="HostServer" Required="No" Path="C:\Lab\Convert-WindowsImage.ps1"/>
+		</Files>
+		<ISOs>
+			<ISO Name="en_windows_server_2012_r2_with_update_x64_dvd_4065220.iso" OS="Windows Server 2012 R2 (x64)"/>
+			<ISO Name="en_windows_server_2008_r2_with_sp1_vl_build_x64_dvd_617403.iso" OS="Windows Server 2008 R2 (x64)"/>
+		</ISOs>
+	</Configuration>
+	<HostServer Name="HYPERVSRV" IPAddress="192.168.0.250"/>
+	<Environment>
+		<Switch Name="PowerLab" Type="Internal" />
+	</Environment>
+	<DefaultVHDConfig Size="40GB" Type="VHDX" Sizing="Dynamic" Path="C:\Lab\VHDs" PartitionStyle="GPT" />
+	<DefaultVMConfig StartupMemory="2GB" ProcessorCount="1" Path="C:\Lab\VMs" Generation="2">
+		<Hostnames>
+			<Hostname OS="Windows Server 2012 R2 (x64)" Edition="ServerStandardCore" Prefix="WINSRV2012R2X64CORE-"/>
+		</Hostnames>
+		<OS Name="Windows Server 2012 R2 (x64)" Edition="ServerStandardCore"/>
+	</DefaultVMConfig>
+	<VirtualMachines>
+		<VM Name="WINSRV2012R2-1" UseDefaultConfig="Yes" InstallOS="Yes" />
+		<VM Name="WINSRV2012R2-2" UseDefaultConfig="Yes" InstallOS="Yes" />
+	</VirtualMachines>
+	<Domain Name="mylab.local">
+		
+	</Domain>
+</PowerLab> 
