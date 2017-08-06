@@ -32,6 +32,20 @@ You're expected to have a working knowledge of the Windows operating system such
 
 We're essentially assuming you're an IT professional with a little bit of experience in the field.
 
+## Prerequisite Software
+
+To work through all of the demos we'll be working through in this book, we're going to assume you already have the following:
+
+- A Hyper-V hypervisor host with roughly 100GB+ of storage space. You can choose to use the [standalone Hyper-V 2016 server downloadable from Microsoft](https://www.microsoft.com/en-us/evalcenter/evaluate-hyper-v-server-2016) or [install the Hyper-V role on full Windows Server 2016](https://docs.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/install-the-hyper-v-role-on-windows-server). If you choose to install Hyper-V on a full Windows Server 2016 host, you can [download a 180 day free evaluation](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2016) of Windows Server 2016 from Microsoft.
+
+- A Windows 10 Pro client on the same network as the Hyper-V host. This will be the workstation we'll be performing all demos and remote work from. Windows 8.1 may work with PowerShell version 5 installed but it was not tested on.
+
+- The Windows 10 Pro client and the Hyper-V host in the same workgroup (not on a domain).
+
+- ISO for Windows Server 2016. An ISO can be [downloaded from Microsoft](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2016) for a 180 day free trial.
+
+- ISO for SQL Server 2016. An ISO can be [downloaded from Microsoft](https://www.microsoft.com/en-us/evalcenter/evaluate-sql-server-2016) for a 180 day free trial.
+
 ## Chapters
 
 ### Part I
@@ -167,18 +181,6 @@ In the previous chapter, we had to run our report manually to refresh the inform
 ### Chapter 29: Sending Email
 
 This chapter will show how to add notification ability to our reporting/monitoring tool by sending emails. We'll go over how to send emails, attach our report and attach the log files in case an error has occurred.
-
-## Prerequisite Software
-
-To work through all of the demos we'll be working through in this book, we're going to assume you already have the following:
-
-- A Hyper-V hypervisor host with roughly 100GB+ of storage space. You can choose to use the [standalone Hyper-V 2016 server downloadable from Microsoft](https://www.microsoft.com/en-us/evalcenter/evaluate-hyper-v-server-2016) or [install the Hyper-V role on full Windows Server 2016](https://docs.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/install-the-hyper-v-role-on-windows-server). If you choose to install Hyper-V on a full Windows Server 2016 host, you can [download a 180 day free evaluation](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2016) of Windows Server 2016 from Microsoft.
-
-- A Windows 10 Pro client on the same network as the Hyper-V host. This will be the workstation we'll be performing all demos and remote work from. Windows 8.1 may work with PowerShell version 5 installed but it was not tested on.
-
-- ISO for Windows Server 2016. An ISO can be [downloaded from Microsoft](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2016) for a 180 day free trial.
-
-- ISO for SQL Server 2016. An ISO can be [downloaded from Microsoft](https://www.microsoft.com/en-us/evalcenter/evaluate-sql-server-2016) for a 180 day free trial.
 
 ## Book Takeaways
 

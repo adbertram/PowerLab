@@ -28,73 +28,6 @@ if ((cmdkey /list:($HostServer.Name)) -match '\* NONE \*')
 
 #endregion
 
-function Invoke-PlAction
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[scriptblock]$ScriptBlock,
-		
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[switch]$AsJob
-	)
-	begin {
-		$ErrorActionPreference = 'Stop'
-	}
-	process {
-		try
-		{
-			if ($PSBoundParameters.ContainsKey('AsJob')) {
-				$sjParams = @{
-					'ScriptBlock' = $Scriptblock
-				}
-				if ($PSBoundParameters.ContainsKey('PassThru')) {
-					Start-Job @sjParams
-				}
-				else
-				{
-					$null = Start-Job @sjParams
-				}
-			}
-			else
-			{
-				& $ScriptBlock				
-			}
-		}
-		catch
-		{
-			$PSCmdlet.ThrowTerminatingError($_)
-		}
-	}
-}
-
-function New-PlHost
-{
-	[CmdletBinding()]
-	param
-	(
-	
-	)
-	begin
-	{
-		$ErrorActionPreference = 'Stop'
-	}
-	process
-	{
-		try
-		{
-			
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-		}
-	}
-}
-
 function New-PowerLab
 {
 	[CmdletBinding()]
@@ -106,40 +39,6 @@ function New-PowerLab
 	try
 	{
 		
-		#region Install SQL Server Express
-		
-		
-		#endregion
-		
-		#region Setup default database
-		New-PlDatabase
-		#endregion
-#		
-#		#region Install RSAT
-#		if (Test-ClientOperatingSystem)
-#		{
-#			Install-RSAT
-#		}
-#		#endregion
-#		
-#		#region Ensure the Hyper-V Manager feature is enabled
-#		## TODO
-#		#endregion
-#		
-#		#region Create and save a host server credential to disk
-#		if (-not (Test-PlHostServerCredential))
-#		{
-#			Save-PlHostServerCredential -Credential (Get-Credential -Message 'Enter a username and password to connect to the host server')
-#		}
-#		else
-#		{
-#			Write-Verbose -Message 'The host server credential file already exists.'
-#		}
-#		#endregion
-#		
-#		#region Setup workgroup WinRM connectivity
-#		Set-WorkgroupConnectivity
-#		#endregion
 #		
 #		#region Copy all required files to host server
 #		$foldersToCopy = (Get-PlConfigurationData).SelectNodes("//Configuration/Folders/Folder[@ToCopyToHostServer='Yes']").Path
@@ -195,35 +94,6 @@ function New-PowerLab
 		if (Test-Path Variable:\session)
 		{
 			Remove-PSSession -Session $session
-		}
-	}
-}
-
-function Test-ClientOperatingSystem
-{
-	[CmdletBinding()]
-	param
-	(
-		
-	)
-	begin {
-		$ErrorActionPreference = 'Stop'
-	}
-	process {
-		try
-		{
-			if ((Get-CimInstance -ClassName Win32_OperatingSystem).Caption -like '*Server*')
-			{
-				$false
-			}
-			else
-			{
-				$true	
-			}
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
 		}
 	}
 }
@@ -290,39 +160,6 @@ function Test-PlPowerLab
 				Write-Verbose -Message 'All ISOs downloaded'
 			}
 			#endregion
-			
-			#region Ensure host server is online
-			if (-not (Test-Connection -ComputerName (Get-PlHostServerConfiguration).Name -Quiet -Count 1))
-			{
-				throw "The host server [$((Get-PlHostServerConfiguration).Name)] is not available."	
-			}
-			#endregion
-			
-			#region Ensure RSAT is installed (if client OS)
-			
-			#endregion
-			
-			#region Ensure Hyper-V manager feature is enabled
-			
-			#endregion
-			
-			#region Ensure the host server credential exists
-			$userModulePath = $env:PSModulePath.Split(';') | where { $PSItem -like "*$env:HOMEPATH*" }
-			$plModulePath = "$userModulePath\PowerLab"
-			if (-not (Test-Path -Path $plModulePath -PathType Leaf))
-			{
-				throw "The host server credential file does not exist in [$($plModulePath)]"
-			}
-			else
-			{
-				Write-Verbose -Message 'The host server credential file exists.'	
-			}
-			#endregion
-			
-			#region Ensure we can connect via WinRM to host server
-			
-			#endregion
-			$true
 		}
 		catch
 		{
@@ -331,3 +168,370 @@ function Test-PlPowerLab
 		}
 	}
 }
+
+## Automate the Boring Stuff Additions
+###################################################################################################################
+
+$configFilePath = "$PSScriptRoot\LabConfiguration.psd1"
+$script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
+
+function Get-LabIso
+{
+	[OutputType('System.IO.FileInfo')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[ValidateScript({ Test-IsOsValid $_ })]
+		[string]$OperatingSystem
+		
+	)
+	$ErrorActionPreference = 'Stop'
+	$isoName = @($script:LabConfiguration.ISOs).where({ $_.OS -eq $OperatingSystem })
+	
+	Get-ChildItem -Path $script:LabConfiguration.IsoFolderPath -Filter $isoName
+
+}
+
+function New-ActiveDirectoryForest
+{
+	[OutputType([void])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		
+	)
+
+	## Grab config values from file
+	$forestConfiguration = $script:LabConfiguration
+	New-LabVirtualMachine
+
+	New-ActiveDirectoryForest
+	
+}
+
+function New-SqlServer
+{
+	[OutputType([void])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		
+	)
+	
+}
+
+function New-WebServer
+{
+	[OutputType([void])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		
+	)
+	
+}
+
+function Install-IIS
+{
+	[OutputType([void])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		
+	)
+	
+}
+
+function Install-SqlServer
+{
+	[OutputType([void])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		
+	)
+	
+}
+
+function New-LabVirtualMachine
+{
+	[OutputType([void])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('SQL','Web','Domain Controller')]
+		[string]$ServerType
+	)
+
+	if ($PSBoundParameters.ContainsKey('ServerType'))
+	{
+		$whereFilter = [scriptblock]::Create("`$_.Type -eq $ServerType")	
+	} else {
+		$whereFilter = { '*' }
+	}
+
+	@($script:LabConfiguration.VirtualMachines).where($whereFilter).foreach({
+		## Create the VM
+		$vmParams = @{
+			ComputerName = $script:LabConfiguration.HostServer.Name
+			Name = $_.Name
+			Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
+			MemoryStartupBytes = $script:LabConfiguration.VmConfig.StartupMemory
+			Switch = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
+			Generation = $script:LabConfiguration.VmConfig.Generation
+			PassThru = $true
+		}
+		$vm = New-VM @vmParams
+
+		## Create the VHD and install Windows on the VM
+		$vm | Add-OperatingSystem -OperatingSystem $_.OS
+		
+	})
+	
+}
+
+function Test-IsOsValid
+{
+	[OutputType([bool])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$OperatingSystem
+	)
+
+	if ($OperatingSystem -notin $script:LabConfiguration.ISOs.OS) {
+		throw "The operating system '$OperatingSystem' is not supported."
+	} else {
+		$true
+	}
+	
+}
+
+function Add-OperatingSystem
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory,ValueFromPipeline)]
+		[ValidateNotNullOrEmpty()]
+		[Microsoft.HyperV.PowerShell.VirtualMachine]$InputObject,
+	
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[ValidateScript({ Test-IsOsValid $_ })]
+		[string]$OperatingSystem
+		
+	)
+
+	$ErrorActionPreference = 'Stop'
+	try
+	{	
+		$vhdName = "$($InputObject.Name).$((Get-PlDefaultVHDConfig).Type)"
+		Write-Verbose -Message "VHD name is [$($vhdName)]"
+		if (Test-PlVhd -Name $vhdName)
+		{
+			throw "There is already a VHD called [$($vhdName)]"	
+		}
+		$vhd = New-PlVhd -Name $vhdName -OperatingSystem $OperatingSystem
+		$InputObject | Add-VMHardDiskDrive -ComputerName $hostserver.Name -Path $vhd.ImagePath
+		
+		$bootOrder = ($InputObject | Get-VMFirmware).Bootorder
+		if ($bootOrder[0].BootType -ne 'Drive')
+		{
+			$InputObject | Set-VMFirmware -FirstBootDevice $InputObject.HardDrives[0]
+		}
+	}
+	catch
+	{
+		Write-Error $_.Exception.Message
+	}
+}
+
+function ConvertTo-VirtualDisk
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[ValidatePattern('\.vhdx?$')]
+		[string]$VhdPath,
+		
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$IsoFilePath,
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$AnswerFilePath,
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('Dynamic', 'Fixed')]
+		[string]$Sizing = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Sizing,
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$Edition = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.OSEdition,
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateRange(512MB, 64TB)]
+		[Uint64]$SizeBytes = (Invoke-Expression $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Size),
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('VHD', 'VHDX')]
+		[string]$VhdFormat = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Type,
+	
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$VHDPartitionStyle = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.PartitionStyle,
+	
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$PassThru
+		
+	)
+	process
+	{
+		try
+		{
+			$convertFilePath = $script:LabConfiguration.VHDConversionScriptPath
+			
+			$sb = {
+				. $args[0]
+				$convertParams = @{
+					SourcePath = $args[1]
+					SizeBytes = $args[2]
+					Edition = $args[3]
+					VHDFormat = $args[4]
+					VHDPath = $args[5]
+					VHDType = $args[6]
+					VHDPartitionStyle = $args[7]
+				}
+				if ($args[8]) {
+					$convertParams.UnattendPath = $args[8]
+				}
+				Convert-WindowsImage @convertParams
+			}
+
+			$icmParams = @{
+				ComputerName = $script:LabConfiguration.HostServer.Name
+				ScriptBlock = $sb
+				ArgumentList = $convertFilePath,$IsoFilePath,$SizeBytes,$Edition,$VhdFormat,$VhdPath,$Sizing,$VHDPartitionStyle,$AnswerFilePath
+			}
+			$result = Invoke-Command @icmParams
+			if ($PassThru.IsPresent) {
+				$result
+			}
+		}
+		catch
+		{
+			Write-Error -Message $_.Exception.Message
+		}
+	}
+}
+
+function New-LabVhd
+{
+	[CmdletBinding(DefaultParameterSetName = 'None')]
+	param
+	(
+		
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[ValidatePattern('\.vhdx?$')]
+		[string]$Name,
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateRange(512MB, 1TB)]
+		[int64]$Size = (Invoke-Expression $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Size),
+		
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path,
+	
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('Dynamic','Fixed')]
+		[string]$Sizing = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Sizing,
+	
+		[Parameter(Mandatory,ParameterSetName = 'OSInstall')]
+		[ValidateNotNullOrEmpty()]
+		[ValidateScript({ Test-IsValidOs $_ })]
+		[string]$OperatingSystem,
+	
+		[Parameter(ParameterSetName = 'OSInstall')]
+		[ValidateNotNullOrEmpty()]
+		[ValidateScript({
+			if (-not (Test-Path -Path $_ -PathType Leaf)) {
+				throw "The autounattend file $($_) could not be found."
+			} else {
+				$true
+			}
+		})]
+		[string]$UnattendedXmlPath
+	)
+	begin
+	{
+		$ErrorActionPreference = 'Stop'
+	}
+	process
+	{
+		try
+		{	
+			$sb = {
+				if (-not (Test-Path -Path $using:Path -PathType Container))
+				{
+					$null = mkdir $using:Path	
+				}
+			}
+			Invoke-Command -ComputerName $script:LabConfiguration.HostServer.Name -ScriptBlock $sb
+			
+			$params = @{
+				'SizeBytes' = $Size
+			}
+			if ($PSBoundParameters.ContainsKey('OperatingSystem'))
+			{
+				$cvtParams = $params + @{
+					IsoFilePath = $script:LabConfiguration.ISOs.where({ $_.OS -eq $OperatingSystem })
+					VhdPath = "$Path\$Name"
+					VhdFormat = ([system.io.path]::GetExtension($Name) -replace '^.')
+					Sizing = $Sizing
+					PassThru = $true
+				}
+				if ($PSBoundParameters.ContainsKey('UnattendedXmlPath')) {
+					$cvtParams.AnswerFilePath = $UnattendedXmlPath
+				}
+				ConvertTo-VirtualDisk @cvtParams
+			}
+			else
+			{
+				$params.ComputerName = $script:LabConfiguration.HostServer.Name
+				$params.Path = "$Path\$Name.$Type"
+				if ($Sizing -eq 'Dynamic')
+				{
+					$params.Dynamic = $true
+				}
+				elseif ($Sizing -eq 'Fixed')
+				{
+					$params.Fixed = $true
+				}
+				New-VHD @params
+			}
+		}
+		catch
+		{
+			Write-Error $_.Exception.Message
+		}
+	}
+}
+

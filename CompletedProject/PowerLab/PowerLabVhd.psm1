@@ -9,6 +9,7 @@ function Add-OperatingSystem
 	
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
+		[ValidateScript({ Test-IsValidOs $_})]
 		[string]$OperatingSystem = (Get-PlDefaultVMConfig).OS.Name
 		
 	)
@@ -18,12 +19,6 @@ function Add-OperatingSystem
 	process {
 		try
 		{
-			$allowedOSes = (Get-PlConfigurationData).Configuration.ISOs.ISO.OS
-			if ($OperatingSystem -notin $allowedOSes)
-			{
-				throw "The operating system [$($OperatingSystem)] is not configured. Use any of the following instead: $allowedOSes"
-			}
-			
 			$vhdName = "$($InputObject.Name).$((Get-PlDefaultVHDConfig).Type)"
 			Write-Verbose -Message "VHD name is [$($vhdName)]"
 			if (Test-PlVhd -Name $vhdName)
@@ -38,9 +33,6 @@ function Add-OperatingSystem
 			{
 				$InputObject | Set-VMFirmware -FirstBootDevice $InputObject.HardDrives[0]
 			}
-			$vmId = (Get-PlDatabaseRow -Table VMs -Column Name -Value $InputObject.Name).VMID
-			Write-Verbose -Message "Updating VM DB entry at ID [$($vmId)] for VM [$($InputObject.Name)] with operating system [$($OperatingSystem)]"
-			Update-PlDatabaseRow -VMId $vmId -Row @{ 'OperatingSystem' = $OperatingSystem }
 		}
 		catch
 		{
@@ -288,96 +280,6 @@ function Get-PlVhd
 					
 				}
 				
-			}
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-		}
-	}
-}
-
-function Remove-PlVhd
-{
-	[CmdletBinding(DefaultParameterSetName = 'InputObject')]
-	param
-	(
-		[Parameter(Mandatory, ValueFromPipeline, ParameterSetName = 'InputObject')]
-		[ValidateNotNullOrEmpty()]
-		[Microsoft.Vhd.PowerShell.VirtualHardDisk]$InputObject,
-		
-		[Parameter(ParameterSetName = 'Path')]
-		[ValidateNotNullOrEmpty()]
-		[string]$Path = (Get-PlDefaultVHDConfig).Path
-		
-	)
-	begin
-	{
-		$ErrorActionPreference = 'Stop'
-		function ConvertTo-LocalPath
-		{	
-			[CmdletBinding()]
-			[OutputType([System.String])]
-			param
-			(
-				[Parameter(Mandatory)]
-				[ValidateNotNullOrEmpty()]
-				[string]$Path
-			)
-			
-			$UncPathSpl = $Path.Split('\')
-			$Drive = $UncPathSpl[3].Trim('$')
-			$FolderTree = $UncPathSpl[4..($UncPathSpl.Length - 1)]
-			'{0}:\{1}' -f $Drive, ($FolderTree -join '\')
-		}
-	}
-	process
-	{
-		try
-		{
-			$icmParams = @{
-				'ComputerName' = $HostServer.Name
-				'Credential' = $HostServer.Credential
-			}
-			if ($PSBoundParameters.ContainsKey('InputObject'))
-			{
-				$Path = $InputObject.Path
-			}
-			if ($Path.StartsWith('\\'))
-			{
-				$Path = ConvertTo-LocalPath -Path $Path	
-			}
-			Invoke-Command @icmParams -ScriptBlock { Remove-Item -Path $using:Path -Force }
-			
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-		}
-	}
-}
-
-function Test-PlVhd
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$Name
-			
-	)
-	begin {
-		$ErrorActionPreference = 'Stop'
-	}
-	process {
-		try
-		{
-			if (Get-PlVhd -Name $Name)
-			{
-				$true
-			} else {
-				$false	
 			}
 		}
 		catch
