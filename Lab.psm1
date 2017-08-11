@@ -479,7 +479,7 @@ function New-LabSwitch
 	{
 		try
 		{
-			if (-not (Get-PlSwitch | where { $_.Name -eq $Name }))
+			if (-not (Get-LabSwitch | where { $_.Name -eq $Name }))
 			{
 				$sParams = @{
 					'Name' = $Name
@@ -498,66 +498,7 @@ function New-LabSwitch
 		}
 	}
 }
-function Get-PlConfigurationData
-{
-	[CmdletBinding(DefaultParameterSetName = 'None')]
-	param
-	(
-		[Parameter(ParameterSetName = 'ConfigurationFolder')]
-		[ValidateNotNullOrEmpty()]
-		[string]$ConfigurationFolder,
-		
-		[Parameter(ParameterSetName = 'VM')]
-		[ValidateNotNullOrEmpty()]
-		[string[]]$VM,
-		
-		[Parameter(ParameterSetName = 'Domain')]
-		[ValidateNotNullOrEmpty()]
-		[switch]$Domain,
-		
-		[Parameter(ParameterSetName = 'HostServer')]
-		[ValidateNotNullOrEmpty()]
-		[switch]$HostServer
-		
-	)
-	begin
-	{
-		$ErrorActionPreference = 'Stop'
-	}
-	process
-	{
-		try
-		{
-			$xConfig = [xml](Get-Content -Path $ConfigFilePath)
-			$xConfig = $xConfig.PowerLab
-			if ($PSBoundParameters.ContainsKey('VM'))
-			{
-				$xConfig.VirtualMachines.VM | where { $_.Name -in $VM }
-			}
-			elseif ($PSBoundParameters.ContainsKey('ConfigurationFolder'))
-			{
-				$xConfig.Configuration.Folders.SelectSingleNode("//Folder[@Name='$ConfigurationFolder']")
-			}
-			elseif ($PSBoundParameters.ContainsKey('HostServer'))
-			{
-				$xConfig.HostServer
-			}
-			elseif ($Domain.IsPresent)
-			{
-				$xConfig.Domain
-			}
-			else
-			{
-				$xConfig
-			}
-			
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-		}
-	}
-}
+
 function ConvertTo-UncPath
 {
 	<#
@@ -594,7 +535,7 @@ function ConvertTo-UncPath
 		}
 	}
 }
-function Get-PlAnswerFile
+function Get-OperatingSystemAnswerFile
 {
 	[CmdletBinding()]
 	param
