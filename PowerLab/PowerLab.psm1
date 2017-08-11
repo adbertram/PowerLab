@@ -3,18 +3,8 @@
 #region Configuration
 Set-StrictMode -Version Latest
 
-$global:Project = [pscustomobject]@{ 'Name' = 'PowerLab' }
-
-$global:ConfigFilePath = "$PSScriptRoot\LabConfiguration.psd1"
-$HostServerCredFile = "$PSScriptRoot\HostServerCred.xml"
-
-$xConfig = [xml](Get-Content -Path $ConfigFilePath)
-$xConfig = $xConfig.PowerLab
-
-$global:HostServer = [pscustomobject]@{
-	'Name' = $xConfig.HostServer.Name
-	'Credential' = Import-Clixml -Path $HostServerCredFile
-}
+$configFilePath = "$PSScriptRoot\LabConfiguration.psd1"
+$script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 if ((cmdkey /list:($HostServer.Name)) -match '\* NONE \*')
 {
@@ -28,7 +18,7 @@ if ((cmdkey /list:($HostServer.Name)) -match '\* NONE \*')
 
 #endregion
 
-function New-PowerLab
+function New-Lab
 {
 	[CmdletBinding()]
 	param (		
@@ -37,144 +27,22 @@ function New-PowerLab
 		[switch]$WinRmCopy
 	)
 	try
-	{
+	{		
+		## Create the switch
+		New-LabSwitch
 		
-#		
-#		#region Copy all required files to host server
-#		$foldersToCopy = (Get-PlConfigurationData).SelectNodes("//Configuration/Folders/Folder[@ToCopyToHostServer='Yes']").Path
-#		$rootDestPath = (Get-PlConfigurationFolder | where { $_.Location -eq 'HostServer' -and $_.Name -eq 'PowerLabRoot' }).Path
-#		if ($WinRmCopy.IsPresent)
-#		{
-#			$session = New-PSSession -ComputerName $hostServer.Name -Credential $hostServer.Credential
-#		}
-#		foreach ($f in $foldersToCopy)
-#		{
-#			if ($WinRmCopy.IsPresent)
-#			{
-#				Send-FileOverWinRm -Path $f -Destination $rootDestPath -Session $session
-#			}
-#			else
-#			{
-#				$rootDestPath = ConvertTo-UncPath -ComputerName $hostServer.Name -LocalFilePath $rootDestPath
-#				Write-Verbose -Message "Copying [$($f)] to [$($rootDestPath)]"
-#				Copy-Item -Path $f -Destination $rootDestPath -Recurse -Container -Verbose
-#			}
-#		}
-#		#endregion
-#		
-#		## Create the switch
-#		New-PlSwitch
-		
-		#region Create VMs
-#		foreach ($vm in (Get-PlVMConfiguration))
-#		{
-#			$params = @{}
-#			if ($vm.UseDefaultConfig)
-#			{
-#				$params.Name = $vm.Name
-#			}
-#			else
-#			{
-#				##TODO	
-#			}
-#			if ($vm.InstallOS)
-#			{
-#				
-#			}
-#			New-PlVm @params
-#		}
+		# region Create VMs
+		foreach ($vm in $script:LabConfiguration.VirtualMachines)
+		{
+			New-LabVirtualMachine -Name $vm.Name -ServerType $vm.Type
+		}
 		#endregion
 	}
 	catch
 	{
 		Write-Error  "$($_.Exception.Message) - Line Number: $($_.InvocationInfo.ScriptLineNumber)"
 	}
-	finally
-	{
-		if (Test-Path Variable:\session)
-		{
-			Remove-PSSession -Session $session
-		}
-	}
 }
-
-function Test-PlPowerLab
-{
-	[CmdletBinding()]
-	param
-	(
-		
-	)
-	begin {
-		$ErrorActionPreference = 'Stop'
-	}
-	process {
-		try
-		{
-			#region Ensure all local folders exist
-			$folders = Get-PlConfigurationFolder | where { $_.Required -eq 'Yes' }
-			foreach ($f in $folders)
-			{
-				if (-not (Test-Path -Path $f.Path -PathType Container))
-				{
-					throw "The configuration folder [$($f.Name)] at [$($f.Path)] cannot be found."
-				}
-				else
-				{
-					Write-Verbose -Message "The folder [$($f.Name)] is good to go"	
-				}
-			}
-			#endregion
-			
-			#region Ensure all appropriate unattend XML files are there
-			$unattendXmlFolder = (Get-PlConfigurationFolder -Name UnattendXml).Path
-			if (-not ($xmls = Get-ChildItem -Path $unattendXmlFolder))
-			{
-				throw "No unattended XML files found in [$($unattendXmlFolder)]"
-			}
-			else
-			{
-				$vmNames = (Get-PlVmConfiguration).Name
-				$unattendVmNames = $xmls.BaseName | where { $_ -in $vmNames }
-				if (diff $vmNames $unattendVmNames)
-				{
-					throw 'All VMs do not have corresponding auto unattend XML files'
-				}
-				else
-				{
-					Write-Verbose -Message 'Auto unattend XML files are good.'	
-				}
-				
-			}
-			#endregion
-			
-			#region Ensure all ISOs are available
-			$requiredOSes = (Get-PlVMConfiguration).OS.Edition | Select -Unique
-			$isoOSesDownloaded = (Get-PlConfigurationData).Configuration.ISOs.ISO.Name
-			if (diff $requiredOSes $isoOSesDownloaded)
-			{
-				throw 'One or more ISOs are not downloaded for the operating systems to deploy'
-			}
-			else
-			{
-				Write-Verbose -Message 'All ISOs downloaded'
-			}
-			#endregion
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-			$false
-		}
-	}
-}
-
-## Automate the Boring Stuff Additions
-###################################################################################################################
-
-$configFilePath = "$PSScriptRoot\LabConfiguration.psd1"
-$script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
-
 function Get-LabIso
 {
 	[OutputType('System.IO.FileInfo')]
@@ -193,7 +61,6 @@ function Get-LabIso
 	Get-ChildItem -Path $script:LabConfiguration.IsoFolderPath -Filter $isoName
 
 }
-
 function New-ActiveDirectoryForest
 {
 	[OutputType([void])]
@@ -210,7 +77,6 @@ function New-ActiveDirectoryForest
 	New-ActiveDirectoryForest
 	
 }
-
 function New-SqlServer
 {
 	[OutputType([void])]
@@ -221,7 +87,6 @@ function New-SqlServer
 	)
 	
 }
-
 function New-WebServer
 {
 	[OutputType([void])]
@@ -232,7 +97,6 @@ function New-WebServer
 	)
 	
 }
-
 function Install-IIS
 {
 	[OutputType([void])]
@@ -243,7 +107,6 @@ function Install-IIS
 	)
 	
 }
-
 function Install-SqlServer
 {
 	[OutputType([void])]
@@ -254,7 +117,6 @@ function Install-SqlServer
 	)
 	
 }
-
 function New-LabVirtualMachine
 {
 	[OutputType([void])]
@@ -274,26 +136,22 @@ function New-LabVirtualMachine
 		$whereFilter = { '*' }
 	}
 
-	@($script:LabConfiguration.VirtualMachines).where($whereFilter).foreach({
-		## Create the VM
-		$vmParams = @{
-			ComputerName = $script:LabConfiguration.HostServer.Name
-			Name = $_.Name
-			Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
-			MemoryStartupBytes = $script:LabConfiguration.VmConfig.StartupMemory
-			Switch = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
-			Generation = $script:LabConfiguration.VmConfig.Generation
-			PassThru = $true
-		}
-		$vm = New-VM @vmParams
+	## Create the VM
+	$vmParams = @{
+		ComputerName = $script:LabConfiguration.HostServer.Name
+		Name = $_.Name
+		Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
+		MemoryStartupBytes = $script:LabConfiguration.VmConfig.StartupMemory
+		Switch = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
+		Generation = $script:LabConfiguration.VmConfig.Generation
+		PassThru = $true
+	}
+	$vm = New-VM @vmParams
 
-		## Create the VHD and install Windows on the VM
-		$vm | Add-OperatingSystem -OperatingSystem $_.OS
-		
-	})
+	## Create the VHD and install Windows on the VM
+	$vm | Add-OperatingSystem -OperatingSystem $_.OS
 	
 }
-
 function Test-IsOsValid
 {
 	[OutputType([bool])]
@@ -312,7 +170,6 @@ function Test-IsOsValid
 	}
 	
 }
-
 function Add-OperatingSystem
 {
 	[CmdletBinding()]
@@ -332,13 +189,9 @@ function Add-OperatingSystem
 	$ErrorActionPreference = 'Stop'
 	try
 	{	
-		$vhdName = "$($InputObject.Name).$(((Get-PlConfigurationData).DefaultVHDConfig).Type)"
+		$vhdName = "$($InputObject.Name).$($script:LabConfiguration.DefaultVHDConfig.Type)"
 		Write-Verbose -Message "VHD name is [$($vhdName)]"
-		if (Test-PlVhd -Name $vhdName)
-		{
-			throw "There is already a VHD called [$($vhdName)]"	
-		}
-		$vhd = New-PlVhd -Name $vhdName -OperatingSystem $OperatingSystem
+		$vhd = New-LabgVhd -Name $vhdName -OperatingSystem $OperatingSystem
 		$InputObject | Add-VMHardDiskDrive -ComputerName $hostserver.Name -Path $vhd.ImagePath
 		
 		$bootOrder = ($InputObject | Get-VMFirmware).Bootorder
@@ -352,7 +205,6 @@ function Add-OperatingSystem
 		Write-Error $_.Exception.Message
 	}
 }
-
 function ConvertTo-VirtualDisk
 {
 	[CmdletBinding()]
@@ -438,7 +290,6 @@ function ConvertTo-VirtualDisk
 		}
 	}
 }
-
 function New-LabVhd
 {
 	[CmdletBinding(DefaultParameterSetName = 'None')]
@@ -534,7 +385,6 @@ function New-LabVhd
 		}
 	}
 }
-
 function Get-LabVhd
 {
 	[CmdletBinding(DefaultParameterSetName = 'None')]
@@ -577,14 +427,14 @@ function Get-LabVhd
 		{
 			if ($PSCmdlet.ParameterSetName -eq 'None')
 			{
-				$vhdsPath = ConvertTo-UncPath -LocalFilePath ((Get-PlConfigurationData).DefaultVHDConfig).Path -ComputerName $HostServer.Name
+				$vhdsPath = ConvertTo-UncPath -LocalFilePath ($script:LabConfiguration.DefaultVHDConfig).Path -ComputerName $HostServer.Name
 				Get-ChildItem -Path $vhdsPath -File | foreach {
 					Get-VHD -Path $_.FullName -ComputerName $HostServer.Name
 				}
 			}
 			else
 			{
-				$vhdsPath = ((Get-PlConfigurationData).DefaultVHDConfig).Path
+				$vhdsPath = ($script:LabConfiguration.DefaultVHDConfig).Path
 				if ($PSBoundParameters.ContainsKey('Name'))
 				{
 					$Path = "$vhdsPath\$Name"
@@ -606,7 +456,6 @@ function Get-LabVhd
 		}
 	}
 }
-
 function New-LabSwitch
 {
 	[CmdletBinding()]
@@ -614,12 +463,12 @@ function New-LabSwitch
 	(
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$Name = (Get-PlConfigurationData).Environment.Switch.Name,
+		[string]$Name = $script:LabConfiguration.Environment.Switch.Name,
 	
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[ValidateSet('Internal','External')]
-		[string]$SwitchType	= (Get-PlConfigurationData).Environment.Switch.Type
+		[string]$SwitchType	= $script:LabConfiguration.Environment.Switch.Type
 		
 	)
 	begin
@@ -649,7 +498,6 @@ function New-LabSwitch
 		}
 	}
 }
-
 function Get-PlConfigurationData
 {
 	[CmdletBinding(DefaultParameterSetName = 'None')]
@@ -710,7 +558,6 @@ function Get-PlConfigurationData
 		}
 	}
 }
-
 function ConvertTo-UncPath
 {
 	<#
@@ -747,7 +594,6 @@ function ConvertTo-UncPath
 		}
 	}
 }
-
 function Get-PlAnswerFile
 {
 	[CmdletBinding()]
@@ -766,7 +612,7 @@ function Get-PlAnswerFile
 	{
 		try
 		{
-			$ansPath = (Get-PlConfigurationData).Configuration.Folders.SelectSingleNode("//Folder[@Name='UnattendXml' and @Location='HostServer']").Path
+			$ansPath = $script:LabConfiguration.Configuration.Folders.SelectSingleNode("//Folder[@Name='UnattendXml' and @Location='HostServer']").Path
 			$icmParams = @{
 				'ComputerName' = $HostServer.Name
 				'Credential' = $HostServer.Credential
