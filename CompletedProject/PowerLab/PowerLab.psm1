@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 
 $global:Project = [pscustomobject]@{ 'Name' = 'PowerLab' }
 
-$global:ConfigFilePath = "$PSScriptRoot\configuration.xml"
+$global:ConfigFilePath = "$PSScriptRoot\LabConfiguration.psd1"
 $HostServerCredFile = "$PSScriptRoot\HostServerCred.xml"
 
 $xConfig = [xml](Get-Content -Path $ConfigFilePath)
@@ -332,7 +332,7 @@ function Add-OperatingSystem
 	$ErrorActionPreference = 'Stop'
 	try
 	{	
-		$vhdName = "$($InputObject.Name).$((Get-PlDefaultVHDConfig).Type)"
+		$vhdName = "$($InputObject.Name).$(((Get-PlConfigurationData).DefaultVHDConfig).Type)"
 		Write-Verbose -Message "VHD name is [$($vhdName)]"
 		if (Test-PlVhd -Name $vhdName)
 		{
@@ -535,3 +535,248 @@ function New-LabVhd
 	}
 }
 
+function Get-LabVhd
+{
+	[CmdletBinding(DefaultParameterSetName = 'None')]
+	param
+	(
+		[Parameter(ParameterSetName = 'Name')]
+		[ValidateNotNullOrEmpty()]
+		[ValidatePattern('\.vhdx?$')]
+		[string]$Name,
+		
+		[Parameter(ParameterSetName = 'Path')]
+		[ValidateNotNullOrEmpty()]
+		[ValidatePattern('^\w:.+\.vhdx?$')]
+		[string]$Path
+	
+	)
+	begin
+	{
+		$ErrorActionPreference = 'Stop'
+		function ConvertTo-UncPath
+		{	
+			[CmdletBinding()]
+			param (
+				[Parameter(Mandatory)]
+				[string]$LocalFilePath,
+				
+				[Parameter(Mandatory)]
+				[string]$ComputerName
+			)
+			process
+			{
+				$RemoteFilePathDrive = ($LocalFilePath | Split-Path -Qualifier).TrimEnd(':')
+				"\\$ComputerName\$RemoteFilePathDrive`$$($LocalFilePath | Split-Path -NoQualifier)"
+			}
+		}
+	}
+	process
+	{
+		try
+		{
+			if ($PSCmdlet.ParameterSetName -eq 'None')
+			{
+				$vhdsPath = ConvertTo-UncPath -LocalFilePath ((Get-PlConfigurationData).DefaultVHDConfig).Path -ComputerName $HostServer.Name
+				Get-ChildItem -Path $vhdsPath -File | foreach {
+					Get-VHD -Path $_.FullName -ComputerName $HostServer.Name
+				}
+			}
+			else
+			{
+				$vhdsPath = ((Get-PlConfigurationData).DefaultVHDConfig).Path
+				if ($PSBoundParameters.ContainsKey('Name'))
+				{
+					$Path = "$vhdsPath\$Name"
+				}
+				try
+				{
+					Get-Vhd -Path $Path -ComputerName $HostServer.Name
+				}
+				catch [System.Management.Automation.ActionPreferenceStopException]
+				{
+					
+				}
+				
+			}
+		}
+		catch
+		{
+			Write-Error $_.Exception.Message
+		}
+	}
+}
+
+function New-LabSwitch
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$Name = (Get-PlConfigurationData).Environment.Switch.Name,
+	
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('Internal','External')]
+		[string]$SwitchType	= (Get-PlConfigurationData).Environment.Switch.Type
+		
+	)
+	begin
+	{
+		$ErrorActionPreference = 'Stop'
+	}
+	process
+	{
+		try
+		{
+			if (-not (Get-PlSwitch | where { $_.Name -eq $Name }))
+			{
+				$sParams = @{
+					'Name' = $Name
+					'SwitchType' = $SwitchType
+				}
+				New-VMSwitch @sParams
+			}
+			else
+			{
+				Write-Verbose -Message "The PowerLab switch [$($Name)] already exists."	
+			}
+		}
+		catch
+		{
+			Write-Error $_.Exception.Message
+		}
+	}
+}
+
+function Get-PlConfigurationData
+{
+	[CmdletBinding(DefaultParameterSetName = 'None')]
+	param
+	(
+		[Parameter(ParameterSetName = 'ConfigurationFolder')]
+		[ValidateNotNullOrEmpty()]
+		[string]$ConfigurationFolder,
+		
+		[Parameter(ParameterSetName = 'VM')]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$VM,
+		
+		[Parameter(ParameterSetName = 'Domain')]
+		[ValidateNotNullOrEmpty()]
+		[switch]$Domain,
+		
+		[Parameter(ParameterSetName = 'HostServer')]
+		[ValidateNotNullOrEmpty()]
+		[switch]$HostServer
+		
+	)
+	begin
+	{
+		$ErrorActionPreference = 'Stop'
+	}
+	process
+	{
+		try
+		{
+			$xConfig = [xml](Get-Content -Path $ConfigFilePath)
+			$xConfig = $xConfig.PowerLab
+			if ($PSBoundParameters.ContainsKey('VM'))
+			{
+				$xConfig.VirtualMachines.VM | where { $_.Name -in $VM }
+			}
+			elseif ($PSBoundParameters.ContainsKey('ConfigurationFolder'))
+			{
+				$xConfig.Configuration.Folders.SelectSingleNode("//Folder[@Name='$ConfigurationFolder']")
+			}
+			elseif ($PSBoundParameters.ContainsKey('HostServer'))
+			{
+				$xConfig.HostServer
+			}
+			elseif ($Domain.IsPresent)
+			{
+				$xConfig.Domain
+			}
+			else
+			{
+				$xConfig
+			}
+			
+		}
+		catch
+		{
+			Write-Error $_.Exception.Message
+		}
+	}
+}
+
+function ConvertTo-UncPath
+{
+	<#
+		.SYNOPSIS
+			A simple function to convert a local file path and a computer name to a network UNC path.
+
+		.PARAMETER LocalFilePath
+			A file path ie. C:\Windows\somefile.txt
+
+		.PARAMETER Computername
+			One or more computers in which the file path exists on
+	#>
+	[CmdletBinding()]
+	param (
+		[Parameter(Mandatory)]
+		[string]$LocalFilePath,
+		
+		[Parameter(Mandatory)]
+		[string[]]$ComputerName
+	)
+	process
+	{
+		try
+		{
+			foreach ($Computer in $ComputerName)
+			{
+				$RemoteFilePathDrive = ($LocalFilePath | Split-Path -Qualifier).TrimEnd(':')
+				"\\$Computer\$RemoteFilePathDrive`$$($LocalFilePath | Split-Path -NoQualifier)"
+			}
+		}
+		catch
+		{
+			Write-Error $_.Exception.Message
+		}
+	}
+}
+
+function Get-PlAnswerFile
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$VMName
+		
+	)
+	begin
+	{
+		$ErrorActionPreference = 'Stop'
+	}
+	process
+	{
+		try
+		{
+			$ansPath = (Get-PlConfigurationData).Configuration.Folders.SelectSingleNode("//Folder[@Name='UnattendXml' and @Location='HostServer']").Path
+			$icmParams = @{
+				'ComputerName' = $HostServer.Name
+				'Credential' = $HostServer.Credential
+				'ScriptBlock' = { Get-Item -Path "$using:ansPath\$using:VMName.xml" }
+			}
+			Invoke-Command @icmParams
+		}
+		catch
+		{
+			Write-Error $_.Exception.Message
+		}
+	}
+}
