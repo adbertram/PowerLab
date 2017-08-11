@@ -20,11 +20,14 @@ function New-Lab
 	{		
 		## Create the switch
 		New-LabSwitch
+
+		## Create the domain controller
+		New-ActiveDirectoryForest
 		
-		# region Create VMs
-		foreach ($vm in $script:LabConfiguration.VirtualMachines)
+		# region Create the member servers
+		foreach ($type in $($script:LabConfiguration.VirtualMachines).where($_.Type -ne 'Domain Controller').Type)
 		{
-			New-LabVirtualMachine -Name $vm.Name -ServerType $vm.Type
+			& "New-$TypeServer"
 		}
 		#endregion
 	}
@@ -224,7 +227,7 @@ function Add-OperatingSystem
 		$vhdName = "$($InputObject.Name).$($script:LabConfiguration.DefaultVHDConfig.Type)"
 		Write-Verbose -Message "VHD name is [$($vhdName)]"
 		$vhd = New-LabgVhd -Name $vhdName -OperatingSystem $OperatingSystem
-		$InputObject | Add-VMHardDiskDrive -ComputerName $hostserver.Name -Path $vhd.ImagePath
+		$InputObject | Add-VMHardDiskDrive -ComputerName $script:LabConfiguration.HostServer.Name -Path $vhd.ImagePath
 		
 		$bootOrder = ($InputObject | Get-VMFirmware).Bootorder
 		if ($bootOrder[0].BootType -ne 'Drive')
@@ -287,7 +290,7 @@ function ConvertTo-VirtualDisk
 	{
 		try
 		{
-			$convertFilePath = $script:LabConfiguration.VHDConversionScriptPath
+			Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $script:LabConfiguration.ProjectRootFolder -Force
 			
 			$sb = {
 				. $args[0]
@@ -309,7 +312,7 @@ function ConvertTo-VirtualDisk
 			$icmParams = @{
 				ComputerName = $script:LabConfiguration.HostServer.Name
 				ScriptBlock = $sb
-				ArgumentList = $convertFilePath,$IsoFilePath,$SizeBytes,$Edition,$VhdFormat,$VhdPath,$Sizing,$VHDPartitionStyle,$AnswerFilePath
+				ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChilPath './Convert-WindowsImage.ps1'),$IsoFilePath,$SizeBytes,$Edition,$VhdFormat,$VhdPath,$Sizing,$VHDPartitionStyle,$AnswerFilePath
 			}
 			$result = Invoke-Command @icmParams
 			if ($PassThru.IsPresent) {
@@ -437,9 +440,9 @@ function Get-LabVhd
 	{
 		if ($PSCmdlet.ParameterSetName -eq 'None')
 		{
-			$vhdsPath = ConvertTo-UncPath -LocalFilePath ($script:LabConfiguration.DefaultVHDConfig).Path -ComputerName $HostServer.Name
+			$vhdsPath = ConvertTo-UncPath -LocalFilePath ($script:LabConfiguration.DefaultVHDConfig).Path -ComputerName $script:LabConfiguration.HostServer.Name
 			Get-ChildItem -Path $vhdsPath -File | foreach {
-				Get-VHD -Path $_.FullName -ComputerName $HostServer.Name
+				Get-VHD -Path $_.FullName -ComputerName $script:LabConfiguration.HostServer.Name
 			}
 		}
 		else
@@ -448,8 +451,8 @@ function Get-LabVhd
 			if ($PSBoundParameters.ContainsKey('Name')) {
 				$Path = "$vhdsPath\$Name"
 			}
-			
-			Get-Vhd -Path $Path -ComputerName $HostServer.Name
+
+			Get-Vhd -Path $Path -ComputerName $script:LabConfiguration.HostServer.Name
 		}
 	}
 	catch
@@ -572,7 +575,7 @@ function Get-OperatingSystemAnswerFile
 		{
 			$ansPath = $script:LabConfiguration.Configuration.Folders.SelectSingleNode("//Folder[@Name='UnattendXml' and @Location='HostServer']").Path
 			$icmParams = @{
-				'ComputerName' = $HostServer.Name
+				'ComputerName' = $script:LabConfiguration.HostServer.Name
 				'Credential' = $HostServer.Credential
 				'ScriptBlock' = { Get-Item -Path "$using:ansPath\$using:VMName.xml" }
 			}
