@@ -489,7 +489,7 @@ function New-LabSwitch
 			}
 			else
 			{
-				Write-Verbose -Message "The PowerLab switch [$($Name)] already exists."	
+				Write-Verbose -Message "The lab switch [$($Name)] already exists."	
 			}
 		}
 		catch
