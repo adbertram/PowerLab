@@ -60,11 +60,23 @@ function New-ActiveDirectoryForest
 		
 	)
 
-	## Grab config values from file
-	$forestConfiguration = $script:LabConfiguration
-	New-LabVirtualMachine
+	## Build the VM
+	$vm = New-LabVirtualMachine -ServerType 'Domain Controller' -PassThru
 
-	New-ActiveDirectoryForest
+	## Grab config values from file
+	$forestConfiguration = $script:LabConfiguration.ActiveDirectoryConfiguration
+	$forestParams = @{
+		DomainName = $forestConfiguration.DomainName
+		DomainMode = $forestConfiguration.DomainMode
+		ForestMode = $forestConfiguration.ForestMode
+		Confirm = $false
+		SafeModeAdministratorPassword = (ConvertTo-SecureString -AsPlainText $forestConfiguration.SafeModeAdministratorPassword -Force)
+	}
+	
+	## Build the forest
+	Install-ADDSForest @forestParams
+
+	# Install-ADDSDomainController -DomainName test.local -Confirm:$false -InstallDns -SafeModeAdministratorPassword (ConvertTo-SecureString -AsPlainText "p@ssw0rd" -Force)
 	
 }
 function New-SqlServer
@@ -72,9 +84,11 @@ function New-SqlServer
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
-	(
-		
-	)
+	()
+
+	## Build the VM
+	$vm = New-LabVirtualMachine -ServerType 'SQL' -PassThru
+	Install-SqlServer -ComputerName $vm.Name
 	
 }
 function New-WebServer
@@ -82,9 +96,11 @@ function New-WebServer
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
-	(
-		
-	)
+	()
+
+	## Build the VM
+	$vm = New-LabVirtualMachine -ServerType 'Web' -PassThru
+	Install-IIS -ComputerName $vm.Name
 	
 }
 function Install-IIS
@@ -93,8 +109,12 @@ function Install-IIS
 	[CmdletBinding(SupportsShouldProcess)]
 	param
 	(
-		
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName
 	)
+
+	$null = Invoke-Command -ComputerName $ComputerName -ScriptBlock { Install-WindowsFeature -Name Web-Server }
 	
 }
 function Install-SqlServer
@@ -103,8 +123,20 @@ function Install-SqlServer
 	[CmdletBinding(SupportsShouldProcess)]
 	param
 	(
-		
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName
 	)
+
+	$uncProjectFolder = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+	$copiedConfigFile = Copy-Item -Path "$PSScriptRoot\SqlServer.ini" -Destination $uncProjectFolder -PassThru
+
+	$invokeParams = @{
+		ComputerName = $ComputerName
+		Command = '{0} /CONFIGURATIONFILE={1}\SqlServer.ini' -f $script:LabConfiguration.SQLServerInstallerPath,$script:LabConfiguration.ProjectRootFolder
+	}
+
+	Invoke-Program @invokeParams
 	
 }
 function New-LabVirtualMachine
@@ -116,7 +148,11 @@ function New-LabVirtualMachine
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[ValidateSet('SQL','Web','Domain Controller')]
-		[string]$ServerType
+		[string]$ServerType,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$PassThru
 	)
 
 	if ($PSBoundParameters.ContainsKey('ServerType'))
@@ -126,10 +162,12 @@ function New-LabVirtualMachine
 		$whereFilter = { '*' }
 	}
 
+	$name = Get-NextLabVirtualMachineName -Type $ServerType
+
 	## Create the VM
 	$vmParams = @{
 		ComputerName = $script:LabConfiguration.HostServer.Name
-		Name = $_.Name
+		Name = $name
 		Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
 		MemoryStartupBytes = $script:LabConfiguration.VmConfig.StartupMemory
 		Switch = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
@@ -140,6 +178,10 @@ function New-LabVirtualMachine
 
 	## Create the VHD and install Windows on the VM
 	$vm | Add-OperatingSystem -OperatingSystem $_.OS
+	
+	if ($PassThru.IsPresent) {
+		$vm
+	}
 	
 }
 function Test-IsOsValid
@@ -391,59 +433,28 @@ function Get-LabVhd
 		[string]$Path
 	
 	)
-	begin
+	try
 	{
-		$ErrorActionPreference = 'Stop'
-		function ConvertTo-UncPath
-		{	
-			[CmdletBinding()]
-			param (
-				[Parameter(Mandatory)]
-				[string]$LocalFilePath,
-				
-				[Parameter(Mandatory)]
-				[string]$ComputerName
-			)
-			process
-			{
-				$RemoteFilePathDrive = ($LocalFilePath | Split-Path -Qualifier).TrimEnd(':')
-				"\\$ComputerName\$RemoteFilePathDrive`$$($LocalFilePath | Split-Path -NoQualifier)"
+		if ($PSCmdlet.ParameterSetName -eq 'None')
+		{
+			$vhdsPath = ConvertTo-UncPath -LocalFilePath ($script:LabConfiguration.DefaultVHDConfig).Path -ComputerName $HostServer.Name
+			Get-ChildItem -Path $vhdsPath -File | foreach {
+				Get-VHD -Path $_.FullName -ComputerName $HostServer.Name
 			}
+		}
+		else
+		{
+			$vhdsPath = ($script:LabConfiguration.DefaultVHDConfig).Path
+			if ($PSBoundParameters.ContainsKey('Name')) {
+				$Path = "$vhdsPath\$Name"
+			}
+			
+			Get-Vhd -Path $Path -ComputerName $HostServer.Name
 		}
 	}
-	process
+	catch
 	{
-		try
-		{
-			if ($PSCmdlet.ParameterSetName -eq 'None')
-			{
-				$vhdsPath = ConvertTo-UncPath -LocalFilePath ($script:LabConfiguration.DefaultVHDConfig).Path -ComputerName $HostServer.Name
-				Get-ChildItem -Path $vhdsPath -File | foreach {
-					Get-VHD -Path $_.FullName -ComputerName $HostServer.Name
-				}
-			}
-			else
-			{
-				$vhdsPath = ($script:LabConfiguration.DefaultVHDConfig).Path
-				if ($PSBoundParameters.ContainsKey('Name'))
-				{
-					$Path = "$vhdsPath\$Name"
-				}
-				try
-				{
-					Get-Vhd -Path $Path -ComputerName $HostServer.Name
-				}
-				catch [System.Management.Automation.ActionPreferenceStopException]
-				{
-					
-				}
-				
-			}
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-		}
+		$PSCmdlet.ThrowTerminatingError($_)
 	}
 }
 function New-LabSwitch
@@ -488,7 +499,23 @@ function New-LabSwitch
 		}
 	}
 }
+function ConvertTo-LocalPath
+{
+	[CmdletBinding()]
+	[OutputType([System.String])]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Path
+	)
 
+	$UncPathSpl = $Path.Split('\')
+	$Drive = $UncPathSpl[3].Trim('$')
+	$FolderTree = $UncPathSpl[4..($UncPathSpl.Length - 1)]
+	'{0}:\{1}' -f $Drive, ($FolderTree -join '\')
+
+}
 function ConvertTo-UncPath
 {
 	<#
@@ -556,4 +583,83 @@ function Get-OperatingSystemAnswerFile
 			Write-Error $_.Exception.Message
 		}
 	}
+}
+
+function Invoke-Program
+{
+	[OutputType('void')]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Command,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[pscredential]$Credential
+	)
+	
+	$wmiParams = @{
+		ComputerName = $ComputerName
+		Class = 'Win32_Process'
+		Name = 'Create'
+		Args = $Command
+	}
+
+	if ($PSBoundParameters.ContainsKey('Credential'))
+	{
+		$wmiParams.Credential = $Credential
+	}
+	$process = Invoke-WmiMethod @wmiParams
+	if ($process.ReturnValue -ne 0)
+	{
+		throw "Process failed with exit code [$($process.ReturnValue)]"
+	}
+}
+
+function Get-LabVirtualMachine
+{
+	[OutputType('$')]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$Type
+	)
+
+	$whereFilter = { '*' }
+	if ($PSBoundParameters.ContainsKey('Type'))
+	{
+		$whereFilter = [scriptblock]::Create("`$_.Type -eq $Type")
+	}
+
+	$baseNames = @($script:LabConfiguration.VirtualMachines).where($whereFilter)
+	$queryString = $baseNames -join '|'
+	@(Get-Vm -ComputerName $script:LabConfiguration.HostServer.Name).where({ $_.Name -match "^$queryString" })
+	
+}
+
+function Get-NextLabVirtualMachineName
+{
+	[OutputType('string')]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Type
+	)
+
+	$highNumberVm = Get-LabVirtualMachine -Type $Type | Sort-Object -Descending | Select-Object -First 1
+	if (-not ($highNum = $highNumberVm -replace '[a-z][A-Z]+')) {
+		$highNum = 1
+	}
+	
+	'{0}{1}' -f $Type,$highNum
 }

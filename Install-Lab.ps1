@@ -7,8 +7,9 @@ $labModulePath = 'C:\Program Files\WindowsPowerShell\Modules'
 $labRepoTempPath = "$env:Temp\AutomateTheBoringStuffWithPowerShell-master"
 Expand-Archive -Path $repoZipFile -DestinationPath ($labRepoTempPath | Split-Path -Parent) -Force
 
-Remove-Item -Path "$env:Temp\Lab" -ErrorAction Ignore -Recurse
-Remove-Item -Path "$labModulePath\Lab" -ErrorAction Ignore -Recurse
+"$env:Temp\Lab","$labModulePath\Lab",$repoZipFile | foreach {
+	Remove-Item -Path $_ -ErrorAction Ignore -Recurse
+}
 
 $labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'Lab' -PassThru -Force
 Move-Item -Path $labModuleFolder.FullName -Destination $labModulePath -Force

@@ -241,6 +241,173 @@ try {
 				Write-Error $_.Exception.Message
 			}
 		}
+
+		function Get-InstalledSoftware
+		{
+			<#
+			.SYNOPSIS
+				Retrieves a list of all software installed on a Windows computer.
+			.EXAMPLE
+				PS> Get-InstalledSoftware
+				
+				This example retrieves all software installed on the local computer.
+			.PARAMETER ComputerName
+				If querying a remote computer, use the computer name here.
+			
+			.PARAMETER Name
+				The software title you'd like to limit the query to.
+			
+			.PARAMETER Guid
+				The software GUID you'e like to limit the query to
+			#>
+			[CmdletBinding()]
+			param (
+				
+				[Parameter()]
+				[ValidateNotNullOrEmpty()]
+				[string]$ComputerName = $env:COMPUTERNAME,
+				
+				[Parameter()]
+				[ValidateNotNullOrEmpty()]
+				[string]$Name,
+				
+				[Parameter()]
+				[string]$Guid
+			)
+			process
+			{
+				try
+				{
+					$scriptBlock = {
+						$args[0].GetEnumerator() | ForEach-Object { New-Variable -Name $_.Key -Value $_.Value }
+						
+						$UninstallKeys = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+						New-PSDrive -Name HKU -PSProvider Registry -Root Registry::HKEY_USERS | Out-Null
+						$UninstallKeys += Get-ChildItem HKU: | where { $_.Name -match 'S-\d-\d+-(\d+-){1,14}\d+$' } | foreach { "HKU:\$($_.PSChildName)\Software\Microsoft\Windows\CurrentVersion\Uninstall" }
+						if (-not $UninstallKeys)
+						{
+							Write-Warning -Message 'No software registry keys found'
+						}
+						else
+						{
+							foreach ($UninstallKey in $UninstallKeys)
+							{
+								$friendlyNames = @{
+									'DisplayName' = 'Name'
+									'DisplayVersion' = 'Version'
+								}
+								Write-Verbose -Message "Checking uninstall key [$($UninstallKey)]"
+								if ($Name)
+								{
+									$WhereBlock = { $_.GetValue('DisplayName') -like "$Name*" }
+								}
+								elseif ($GUID)
+								{
+									$WhereBlock = { $_.PsChildName -eq $Guid }
+								}
+								else
+								{
+									$WhereBlock = { $_.GetValue('DisplayName') }
+								}
+								$SwKeys = Get-ChildItem -Path $UninstallKey -ErrorAction SilentlyContinue | Where-Object $WhereBlock
+								if (-not $SwKeys)
+								{
+									Write-Verbose -Message "No software keys in uninstall key $UninstallKey"
+								}
+								else
+								{
+									foreach ($SwKey in $SwKeys)
+									{
+										$output = @{ }
+										foreach ($ValName in $SwKey.GetValueNames())
+										{
+											if ($ValName -ne 'Version')
+											{
+												$output.InstallLocation = ''
+												if ($ValName -eq 'InstallLocation' -and ($SwKey.GetValue($ValName)) -and (@('C:', 'C:\Windows', 'C:\Windows\System32', 'C:\Windows\SysWOW64') -notcontains $SwKey.GetValue($ValName).TrimEnd('\')))
+												{
+													$output.InstallLocation = $SwKey.GetValue($ValName).TrimEnd('\')
+												}
+												[string]$ValData = $SwKey.GetValue($ValName)
+												if ($friendlyNames[$ValName])
+												{
+													$output[$friendlyNames[$ValName]] = $ValData.Trim() ## Some registry values have trailing spaces.
+												}
+												else
+												{
+													$output[$ValName] = $ValData.Trim() ## Some registry values trailing spaces
+												}
+											}
+										}
+										$output.GUID = ''
+										if ($SwKey.PSChildName -match '\b[A-F0-9]{8}(?:-[A-F0-9]{4}){3}-[A-F0-9]{12}\b')
+										{
+											$output.GUID = $SwKey.PSChildName
+										}
+										[pscustomobject]$output
+									}
+								}
+							}
+						}
+					}
+					
+					if ($ComputerName -eq $env:COMPUTERNAME)
+					{
+						& $scriptBlock $PSBoundParameters
+					}
+					else
+					{
+						Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $PSBoundParameters
+					}
+				}
+				catch
+				{
+					Write-Error -Message "Error: $($_.Exception.Message) - Line Number: $($_.InvocationInfo.ScriptLineNumber)"
+				}
+			}
+		}
+
+		function Install-RSAT
+		{
+			[CmdletBinding()]
+			param
+			(
+				[Parameter()]
+				[ValidateNotNullOrEmpty()]
+				[string]$Url = 'https://download.microsoft.com/download/1/D/8/1D8B5022-5477-4B9A-8104-6A71FF9D98AB/WindowsTH-RSAT_WS2016-x64.msu'
+				
+			)
+			begin
+			{
+				$ErrorActionPreference = 'Stop'
+			}
+			process
+			{
+				try
+				{
+					#region RSAT download
+					$downloadedFilePath = "$env:TEMP\$($Url | Split-Path -Leaf)"
+					if (-not (Test-Path -Path $downloadedFilePath -PathType Leaf))
+					{
+						Invoke-WebRequest -Uri $Url -OutFile $downloadedFilePath
+					}
+					else
+					{
+						Write-Verbose -Message "The file [$($downloadedFilePath)] already exists. Using that one to install RSAT."
+					}
+					#endregion
+					
+					#region RSAT install
+					$null = Start-Process -FilePath 'WUSA.exe' -Args "$downloadedFilePath /QUIET /NORESTART" -Wait -NoNewWindow
+					#endregion
+				}
+				catch
+				{
+					Write-Error $_.Exception.Message
+				}
+			}
+		}
+
 	#endregion
 
 	if (-not (Get-PlHostEntry | where HostName -eq $hostServerConfig.Name)) {
@@ -321,6 +488,27 @@ try {
 	if ((cmdkey /list:($HostServerConfig.Name)) -match '\* NONE \*') {
 		$null = cmdkey /add:($HostServerConfig.Name) /user:($HostServerConfig.Credential.UserName) /pass:($HostServerConfig.Credential.GetNetworkCredential().Password)
 	}
+
+	if (-not (Get-InstalledSoftware | where { $_.Name -like '*Remote Server Administration Tools*' })) {
+		$rsatInstall = Read-Host -Prompt 'RSAT for Windows 10 is not installed. Install now? (Y,N)'
+		if ($rsatInstall -eq 'Y') {
+			Write-Host 'Downloading and installing RSAT for Windows 10. This may take a minute..'
+			Install-Rsat
+			Write-Host 'Done.'
+		} else {
+			Write-Host -Object 'RSAT must be installed before using this Lab module. It can be downloaded from https://download.microsoft.com/download/1/D/8/1D8B5022-5477-4B9A-8104-6A71FF9D98AB/WindowsTH-RSAT_WS2016-x64.msu' -ForegroundColor Red
+		}
+	}
+
+	if (-not ($hyperVToolFeature = dism /online /get-features | select-string -Pattern 'Microsoft-Hyper-V-Tools-All' -Context 1)) {
+		throw 'The required feature for Hyper-V is not installed. Did you install RSAT?'
+	} elseif ($hyperVToolFeature.Context.PostContext -notmatch 'Enabled') {
+		Write-Host 'Enabling the Hyper-V management features...'
+		dism /online /Enable-Feature /FeatureName:Microsoft-Hyper-V-Tools-All /All
+	}
+
+	Write-Host -Object 'Ensure all values in the Lab configuration file are valid.'
+	ise "$PSscriptRoot\LabConfiguration.psd1"
 
 	Write-Host -Object 'Lab setup is now complete.' -ForegroundColor Green
 } catch {
