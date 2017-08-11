@@ -6,7 +6,11 @@ Invoke-WebRequest -Uri 'https://github.com/adbertram/AutomateTheBoringStuffWithP
 $labModulePath = 'C:\Program Files\WindowsPowerShell\Modules'
 $labRepoTempPath = "$env:Temp\AutomateTheBoringStuffWithPowerShell-master"
 Expand-Archive -Path $repoZipFile -DestinationPath ($labRepoTempPath | Split-Path -Parent) -Force
-$labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'Lab' -PassThru
+
+Remove-Item -Path "$env:Temp\Lab" -ErrorAction Ignore -Recurse
+Remove-Item -Path "$labModulePath\Lab" -ErrorAction Ignore -Recurse
+
+$labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'Lab' -PassThru -Force
 Move-Item -Path $labModuleFolder.FullName -Destination $labModulePath -Force
 
 & "$PSScriptRoot\PrerequisiteSetup.ps1"

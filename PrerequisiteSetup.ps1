@@ -1,8 +1,8 @@
 try {
 	$HostServerConfig = @{
-		Name = Read-Host -Prompt 'Name of your HYPERV host:'
-		IPAddress = Read-Host -Prompt 'IP address of your HYPERV host:'
-		Credential = Get-Credential -Message 'Local username/password to connect to your Hyper-V host:'
+		Name = Read-Host -Prompt 'Name of your HYPERV host'
+		IPAddress = Read-Host -Prompt 'IP address of your HYPERV host'
+		Credential = Get-Credential -Message 'Local username/password to connect to your Hyper-V host'
 	}
 
 	#region Functions
@@ -146,7 +146,6 @@ try {
 								@{
 									'IPAddress' = $matches.ipAddress
 									'HostName' = $matches.hostname
-									'Comment' = $matches.comment
 								}
 							}
 							$matches = $null
@@ -244,22 +243,28 @@ try {
 		}
 	#endregion
 
-	Write-Host -Object 'Adding local hosts entry for Hyper-V host...'
-	Add-PlHostEntry -HostName $hostServerConfig.Name -IpAddress $hostServerConfig.IPAddress
-		
-	Write-Host -Object 'Adding hosts entry for local computer on Hyper-V host...'
+	if (-not (Get-PlHostEntry | where HostName -eq $hostServerConfig.Name)) {
+		Write-Host -Object 'Adding local hosts entry for Hyper-V host...'
+		Add-PlHostEntry -HostName $hostServerConfig.Name -IpAddress $hostServerConfig.IPAddress
+	}
+
+	Write-Host -Object 'Enabling PS remoting on local computer...'
+	$null = Enable-PSRemoting -Force -SkipNetworkProfileCheck
+
+	Write-Host -Object 'Adding server to trusted computers...'
+	Add-TrustedHostComputer -ComputerName $hostServerConfig.Name
+	
 	$plParams = @{
 		'ComputerName' = $HostServerConfig.Name
 		'Credential' = $HostServerConfig.Credential
 		'HostName' = $env:COMPUTERNAME
 		'IPAddress' = (Get-NetIPAddress -AddressFamily IPv4 | where { $_.PrefixOrigin -ne 'WellKnown' }).IPAddress
 	}
-	Add-PlHostEntry @plParams
-	
-	Write-Host -Object 'Adding Hyper-V to WinRM trusted computers...'
-	Add-TrustedHostComputer -ComputerName $hostServerConfig.Name
-	
-	
+	if (-not (Get-PlHostEntry -ComputerName $plParams.ComputerName -Credential $HostServerConfig.Credential | where HostName -eq $plParams.HostName)) {
+		Write-Host -Object 'Adding hosts entry for local computer on Hyper-V host...'
+		Add-PlHostEntry @plParams
+	}
+
 	if (-not (Test-PsRemoting -computername $hostServerConfig.Name -Credential $hostServerConfig.Credential))
 	{
 		$wmiParams = @{
@@ -302,7 +307,7 @@ try {
 		if ($members -notcontains 'ANONYMOUS LOGON')
 		{
 			$group = [ADSI]"WinNT://./Distributed COM Users,group"
-			$group.add("WinNT://./NT AUTHORITY\ANONYMOUS LOGON")
+			$group.add("WinNT://./NT AUTHORITY/ANONYMOUS LOGON")
 		}
 	}
 	Write-Host -Object 'Adding the ANONYMOUS LOGON user to the local machine and host server Distributed COM Users group for Hyper-V manager'
@@ -311,6 +316,8 @@ try {
 	
 	Write-Host -Object 'Enabling applicable firewall rules on local machine...'
 	Enable-NetFirewallRule -DisplayGroup 'Remote Volume Management'
+
+	Write-Host -Object 'Lab setup is now complete.' -ForegroundColor Green
 } catch {
 	Write-Warning $_.Exception.Message
 }
