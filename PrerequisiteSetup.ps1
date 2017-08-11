@@ -317,6 +317,11 @@ try {
 	Write-Host -Object 'Enabling applicable firewall rules on local machine...'
 	Enable-NetFirewallRule -DisplayGroup 'Remote Volume Management'
 
+	Write-Host -Object 'Adding saved credential on local computer for Hyper-V host...'
+	if ((cmdkey /list:($HostServerConfig.Name)) -match '\* NONE \*') {
+		$null = cmdkey /add:($HostServerConfig.Name) /user:($HostServerConfig.Credential.UserName) /pass:($HostServerConfig.Credential.GetNetworkCredential().Password)
+	}
+
 	Write-Host -Object 'Lab setup is now complete.' -ForegroundColor Green
 } catch {
 	Write-Warning $_.Exception.Message
