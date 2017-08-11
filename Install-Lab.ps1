@@ -7,6 +7,6 @@ $labModulePath = 'C:\Program Files\WindowsPowerShell\Modules'
 $labRepoTempPath = "$env:Temp\AutomateTheBoringStuffWithPowerShell-master"
 Expand-Archive -Path $repoZipFile -DestinationPath ($labRepoTempPath | Split-Path -Parent) -Force
 $labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'Lab' -PassThru
-Move-Item -Path $labModuleFolder.FullName -Destination $labModulePath
+Move-Item -Path $labModuleFolder.FullName -Destination $labModulePath -Force
 
 & "$PSScriptRoot\PrerequisiteSetup.ps1"
