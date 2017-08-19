@@ -14,11 +14,21 @@
 	ISOs = @( ## Define each
 		@{
 			FileName = 'en_windows_server_2016_x64_dvd_9718492.iso'
+			Type = 'OS'
 			Name = 'Windows Server 2016'
+			ProductKey = '78NRB-C3P3J-DG4RM-36C7V-8HWT4'
 		}
 		@{
 			FileName = 'en_sql_server_2016_standard_x64_dvd_8701871.iso' 
+			Type = 'Software'
 			Name = 'SQL Server 2016'
+			ProductKey = ''
+		}
+		@{
+			FileName = 'en_windows_server_2012_r2_with_update_x64_dvd_4065220.iso' 
+			Type = 'OS'
+			Name = 'Windows Server 2012 R2'
+			ProductKey = 'JTND6-KBM4R-R9XH2-PK723-PYRRY'
 		}
 	)
 
@@ -26,14 +36,6 @@
 	HostServer = @{
 		Name = 'HYPERVSRV'
 		IPAddress = '192.168.0.250'
-	}
-
-	## All configurations values pertaining to the Hyper-V host setup
-	HyperVConfiguration = @{
-		Switch = @{
-			Name = 'Lab'
-			Type = 'Internal'
-		}
 	}
 
     ## This will be the default configuration for all Hyper-V components built by this Lab module
@@ -55,6 +57,13 @@
 			Path = 'C:\MyLab\VMs' 
 			Generation = 2
 			OSEdition = 'ServerStandardCore'
+		}
+	}
+
+	DefaultOperatingSystemConfiguration = @{
+		User = @{
+			Name = 'LabUser'
+			Password = 'p@$$w0rd12'
 		}
 	}
 

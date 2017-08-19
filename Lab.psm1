@@ -69,7 +69,7 @@ function New-ActiveDirectoryForest
 	)
 
 	## Build the VM
-	$vm = New-LabVirtualMachine -ServerType 'Domain Controller' -PassThru
+	$vm = New-LabVm -ServerType 'Domain Controller' -PassThru
 
 	## Grab config values from file
 	$forestConfiguration = $script:LabConfiguration.ActiveDirectoryConfiguration
@@ -95,7 +95,7 @@ function New-SqlServer
 	()
 
 	## Build the VM
-	$vm = New-LabVirtualMachine -ServerType 'SQL' -PassThru
+	$vm = New-LabVm -ServerType 'SQL' -PassThru
 	Install-SqlServer -ComputerName $vm.Name
 	
 }
@@ -107,7 +107,7 @@ function New-WebServer
 	()
 
 	## Build the VM
-	$vm = New-LabVirtualMachine -ServerType 'Web' -PassThru
+	$vm = New-LabVm -ServerType 'Web' -PassThru
 	Install-IIS -ComputerName $vm.Name
 	
 }
@@ -147,7 +147,7 @@ function Install-SqlServer
 	InvokeProgram @invokeParams
 	
 }
-function New-LabVirtualMachine
+function New-LabVm
 {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -156,36 +156,46 @@ function New-LabVirtualMachine
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[ValidateSet('SQL','Web','Domain Controller')]
-		[string]$ServerType,
+		[string]$Type,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[switch]$PassThru
 	)
 
-	if ($PSBoundParameters.ContainsKey('ServerType'))
+	if ($PSBoundParameters.ContainsKey('Type'))
 	{
-		$whereFilter = [scriptblock]::Create("`$_.Type -eq $ServerType")	
+		$whereFilter = [scriptblock]::Create("`$_.Type -eq $Type")
 	} else {
 		$whereFilter = { '*' }
 	}
 
-	$name = GetNextLabVmName -Type $ServerType
+	$name = GetNextLabVmName -Type $Type
 
 	## Create the VM
-	$vmParams = @{
-		ComputerName = $script:LabConfiguration.HostServer.Name
-		Name = $name
-		Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
-		MemoryStartupBytes = $script:LabConfiguration.VmConfig.StartupMemory
-		Switch = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
-		Generation = $script:LabConfiguration.VmConfig.Generation
-		PassThru = $true
+	$scriptBlock = {
+		$vmParams = @{
+			Name = $args[0]
+			Path = $args[1]
+			MemoryStartupBytes = $args[2]
+			Switch = $args[3]
+			Generation = $args[4]
+			PassThru = $true
+		}
+		$vm = New-VM @vmParams
 	}
-	$vm = New-VM @vmParams
+	$argList = @(
+		$name
+		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
+		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.StartupMemory
+		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
+		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VmConfig.Generation
+	)
+	$vm = InvokeHyperVCommand -Scriptblock $scriptBlock -ArgumentList $argList
 
 	## Create the VHD and install Windows on the VM
-	$vm | AddOperatingSystem -OperatingSystem $_.OS
+	$os = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}).OS
+	$vm | AddOperatingSystem -OperatingSystem $os
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -229,16 +239,21 @@ function AddOperatingSystem
 	$ErrorActionPreference = 'Stop'
 	try
 	{	
-		$vhdName = "$($InputObject.Name).$($script:LabConfiguration.DefaultVHDConfig.Type)"
-		Write-Verbose -Message "VHD name is [$($vhdName)]"
-		$vhd = New-LabgVhd -Name $vhdName -OperatingSystem $OperatingSystem
-		$InputObject | Add-VMHardDiskDrive -ComputerName $script:LabConfiguration.HostServer.Name -Path $vhd.ImagePath
-		
-		$bootOrder = ($InputObject | Get-VMFirmware).Bootorder
-		if ($bootOrder[0].BootType -ne 'Drive')
-		{
-			$InputObject | Set-VMFirmware -FirstBootDevice $InputObject.HardDrives[0]
+		$vhdName = "$($InputObject.Name).$($script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Type)"
+		$vhd = New-LabVhd -Name $vhdName -OperatingSystem $OperatingSystem
+
+		$invParams = @{
+			Scriptblock = { 
+				$args[0] | Add-VMHardDiskDrive -Path $args[1]
+				$bootOrder = ($args[0] | Get-VMFirmware).Bootorder
+				if ($bootOrder[0].BootType -ne 'Drive')
+				{
+					$args[0] | Set-VMFirmware -FirstBootDevice $args[0].HardDrives[0]
+				}
+			}
+			ArgumentList = $vhd,$vhd.ImagePath
 		}
+		InvokeHyperVCommand @invParams
 	}
 	catch
 	{
@@ -338,17 +353,12 @@ function New-LabVhd
 		
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[ValidatePattern('\.vhdx?$')]
 		[string]$Name,
 		
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[ValidateRange(512MB, 1TB)]
 		[int64]$Size = (Invoke-Expression $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Size),
-		
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[string]$Path = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path,
 	
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
@@ -357,19 +367,8 @@ function New-LabVhd
 	
 		[Parameter(Mandatory,ParameterSetName = 'OSInstall')]
 		[ValidateNotNullOrEmpty()]
-		[ValidateScript({ Test-IsValidOs $_ })]
-		[string]$OperatingSystem,
-	
-		[Parameter(ParameterSetName = 'OSInstall')]
-		[ValidateNotNullOrEmpty()]
-		[ValidateScript({
-			if (-not (Test-Path -Path $_ -PathType Leaf)) {
-				throw "The autounattend file $($_) could not be found."
-			} else {
-				$true
-			}
-		})]
-		[string]$UnattendedXmlPath
+		[ValidateScript({ TestIsIsoNameValid $_ })]
+		[string]$OperatingSystem
 	)
 	begin
 	{
@@ -379,29 +378,22 @@ function New-LabVhd
 	{
 		try
 		{	
-			$sb = {
-				if (-not (Test-Path -Path $using:Path -PathType Container))
-				{
-					$null = mkdir $using:Path	
-				}
-			}
-			Invoke-Command -ComputerName $script:LabConfiguration.HostServer.Name -ScriptBlock $sb
-			
 			$params = @{
 				'SizeBytes' = $Size
 			}
+			$vhdPath = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path
 			if ($PSBoundParameters.ContainsKey('OperatingSystem'))
 			{
+				$answerFilePath = "$PSScriptRoot\AutoUnattend\$OperatingSystem.xml"
 				$cvtParams = $params + @{
-					IsoFilePath = $script:LabConfiguration.ISOs.where({ $_.OS -eq $OperatingSystem })
-					VhdPath = "$Path\$Name"
-					VhdFormat = ([system.io.path]::GetExtension($Name) -replace '^.')
+					IsoFilePath = $script:LabConfiguration.ISOs.where({ $_.Name -eq $OperatingSystem })
+					VhdPath = "$vhdPath\$Name.vhdx"
+					VhdFormat = 'VHDX'
 					Sizing = $Sizing
 					PassThru = $true
+					AnswerFilePath = $UnattendedXmlPath
 				}
-				if ($PSBoundParameters.ContainsKey('UnattendedXmlPath')) {
-					$cvtParams.AnswerFilePath = $UnattendedXmlPath
-				}
+
 				ConvertToVirtualDisk @cvtParams
 			}
 			else
@@ -519,12 +511,12 @@ function New-LabSwitch
 	(
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$Name = $script:LabConfiguration.HyperVConfiguration.Switch.Name,
+		[string]$Name = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name,
 	
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[ValidateSet('Internal','External')]
-		[string]$Type = $script:LabConfiguration.HyperVConfiguration.Switch.Type
+		[string]$Type = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Type
 		
 	)
 	begin
@@ -642,7 +634,6 @@ function GetNextLabVmName
 	
 	'{0}{1}' -f $baseName,$highNum
 }
-
 function Test-lab
 {
 	[OutputType('bool')]
@@ -690,6 +681,20 @@ function Test-lab
 			}
 			FailMessage = 'One or more ISOs specified in the ISOs section of Lab Configuration could not be found.'
 		}
+		@{
+			Test = { 
+				$validNames = $script:LabConfiguration.ISOs.where({ $_.Type -eq 'OS'}).Name
+				$xmlFiles = Get-ChildItem "$PSScriptRoot\AutoUnattend" -Filter '*.xml' -File
+				$validxmlFiles = $xmlFiles | Where-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -in $validNames }
+				if (@($validNames).Count -ne @($validXmlFiles).Count) {
+					$false
+				} else {
+					$true
+				}
+
+			}
+			FailMessage = 'One or more operating systems do not have a unattend.xml file in the AutoAttend folder.'
+		}
 	)
 
 	try {
@@ -703,4 +708,63 @@ function Test-lab
 		$PSCmdlet.ThrowTerminatingError($_)
 	}
 	
+}
+function PrepareUnattendXml
+{
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$Path,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$ProductKey,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$UserName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$UserPassword
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	## Make a copy of the unattend XML
+	$tempUnattend = Copy-Item -Path $Path -Destination "$env:TEMP" -PassThru -Force
+
+	## Prep the XML object
+	$unattendText = Get-Content -Path $tempUnattend.FullName -Raw
+	$xUnattend = ([xml]$unattendText)
+	$ns = New-Object System.Xml.XmlNamespaceManager($xunattend.NameTable)
+	$ns.AddNamespace('ns', $xUnattend.DocumentElement.NamespaceURI)
+
+	## Insert the correct product key
+	$xUnattend.SelectSingleNode('//ns:ProductKey',$ns).InnerText = $ProductKey
+	$xUnattend.Save($tempUnattend.FullName)
+	
+	## Insert the user name and password
+	$userxPaths = '//ns:FullName','//ns:Username','//ns:DisplayName','//ns:Name'
+	$userxPaths | foreach {
+		$xUnattend.SelectSingleNode($_,$ns).InnerXml = $UserName
+	}
+
+	$passXpaths = '//ns:LocalAccounts/ns:LocalAccount/ns:Password/ns:Value'
+	$passXPaths | foreach {
+		$xUnattend.SelectSingleNode($_,$ns).InnerXml = $UserPassword
+	}
+
+	$ns = New-Object System.Xml.XmlNamespaceManager($xunattend.NameTable)
+	$ns.AddNamespace('ns', $xUnattend.DocumentElement.NamespaceURI)
+	
+	,'//ns:Autologon/ns:Password/ns:Value'
+
+	$xUnattend.Save($tempUnattend.FullName)
+
+	## Add the AutoUnattend.xml file to the root of the ISO
+	## TODO: I see no way to automate this in PowerShell
+	Write-Host "The XML file at [$($tempUnattend.FullName)] is now ready to be added to the ISO."
 }
