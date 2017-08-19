@@ -55,7 +55,7 @@ function Get-LabIso
 		LocalFilePath = $script:LabConfiguration.IsoFolderPath
 		ComputerName = $script:LabConfiguration.HostServer.Name
 	}
-	$uncIsoFolderPath = ConvertTo-UncPath @convertParams
+	$uncIsoFolderPath = ConvertToUncPath @convertParams
 	Get-ChildItem -Path $uncIsoFolderPath -Filter $isoFileName
 
 }
@@ -136,7 +136,7 @@ function Install-SqlServer
 		[string]$ComputerName
 	)
 
-	$uncProjectFolder = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+	$uncProjectFolder = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
 	$copiedConfigFile = Copy-Item -Path "$PSScriptRoot\SqlServer.ini" -Destination $uncProjectFolder -PassThru
 
 	$invokeParams = @{
@@ -144,7 +144,7 @@ function Install-SqlServer
 		Command = '{0} /CONFIGURATIONFILE={1}\SqlServer.ini' -f $script:LabConfiguration.SQLServerInstallerPath,$script:LabConfiguration.ProjectRootFolder
 	}
 
-	Invoke-Program @invokeParams
+	InvokeProgram @invokeParams
 	
 }
 function New-LabVirtualMachine
@@ -170,7 +170,7 @@ function New-LabVirtualMachine
 		$whereFilter = { '*' }
 	}
 
-	$name = Get-NextLabVmName -Type $ServerType
+	$name = GetNextLabVmName -Type $ServerType
 
 	## Create the VM
 	$vmParams = @{
@@ -185,7 +185,7 @@ function New-LabVirtualMachine
 	$vm = New-VM @vmParams
 
 	## Create the VHD and install Windows on the VM
-	$vm | Add-OperatingSystem -OperatingSystem $_.OS
+	$vm | AddOperatingSystem -OperatingSystem $_.OS
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -210,7 +210,7 @@ function TestIsIsoNameValid
 	}
 	
 }
-function Add-OperatingSystem
+function AddOperatingSystem
 {
 	[CmdletBinding()]
 	param
@@ -245,7 +245,7 @@ function Add-OperatingSystem
 		Write-Error $_.Exception.Message
 	}
 }
-function ConvertTo-VirtualDisk
+function ConvertToVirtualDisk
 {
 	[CmdletBinding()]
 	param
@@ -402,7 +402,7 @@ function New-LabVhd
 				if ($PSBoundParameters.ContainsKey('UnattendedXmlPath')) {
 					$cvtParams.AnswerFilePath = $UnattendedXmlPath
 				}
-				ConvertTo-VirtualDisk @cvtParams
+				ConvertToVirtualDisk @cvtParams
 			}
 			else
 			{
@@ -456,9 +456,13 @@ function Get-LabVm
 	[CmdletBinding()]
 	param
 	(
-		[Parameter()]
+		[Parameter(ParameterSetName = 'Name')]
 		[ValidateNotNullOrEmpty()]
-		[string]$Name
+		[string]$Name,
+
+		[Parameter(ParameterSetName = 'Type')]
+		[ValidateNotNullOrEmpty()]
+		[string]$Type
 	
 	)
 	$ErrorActionPreference = 'Stop'
@@ -467,6 +471,8 @@ function Get-LabVm
 	if ($PSBoundParameters.ContainsKey('Name'))
 	{
 		$nameMatch = $Name
+	} elseif ($PSBoundParameters.ContainsKey('Type')) {
+		$nameMatch = 'DC'
 	}
 
 	try {
@@ -526,24 +532,7 @@ function New-LabSwitch
 		}
 	}
 }
-function ConvertTo-LocalPath
-{
-	[CmdletBinding()]
-	[OutputType([System.String])]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$Path
-	)
-
-	$UncPathSpl = $Path.Split('\')
-	$Drive = $UncPathSpl[3].Trim('$')
-	$FolderTree = $UncPathSpl[4..($UncPathSpl.Length - 1)]
-	'{0}:\{1}' -f $Drive, ($FolderTree -join '\')
-
-}
-function ConvertTo-UncPath
+function ConvertToUncPath
 {
 	<#
 		.SYNOPSIS
@@ -579,7 +568,7 @@ function ConvertTo-UncPath
 		}
 	}
 }
-function Invoke-Program
+function InvokeProgram
 {
 	[OutputType('void')]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -615,7 +604,7 @@ function Invoke-Program
 		throw "Process failed with exit code [$($process.ReturnValue)]"
 	}
 }
-function Get-NextLabVmName
+function GetNextLabVmName
 {
 	[OutputType('string')]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -627,11 +616,15 @@ function Get-NextLabVmName
 	)
 
 	$highNumberVm = Get-LabVm -Type $Type | Sort-Object -Descending | Select-Object -First 1
-	if (-not ($highNum = $highNumberVm -replace '[a-z][A-Z]+')) {
+	if (-not $highNumberVm -or ($highNum = $highNumberVm -replace '[a-z][A-Z]+')) {
 		$highNum = 1
 	}
+	if (-not ($types = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}))) {
+		throw "Unrecognize VM type: [$($Type)]"
+	}
+	$baseName = $types.BaseName
 	
-	'{0}{1}' -f $Type,$highNum
+	'{0}{1}' -f $baseName,$highNum
 }
 
 function Test-lab
@@ -645,10 +638,10 @@ function Test-lab
 
 	$ErrorActionPreference = 'Stop'
 
-	$uncProjectRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
-	$isoRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.IsoFolderPath -ComputerName $script:LabConfiguration.HostServer.Name
-	$vhdRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
-	$vmRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
+	$uncProjectRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+	$isoRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.IsoFolderPath -ComputerName $script:LabConfiguration.HostServer.Name
+	$vhdRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
+	$vmRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
 
 	$rules = @(
 		@{
