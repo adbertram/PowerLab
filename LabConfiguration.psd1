@@ -28,6 +28,14 @@
 		IPAddress = '192.168.0.250'
 	}
 
+	## All configurations values pertaining to the Hyper-V host setup
+	HyperVConfiguration = @{
+		Switch = @{
+			Name = 'Lab'
+			Type = 'Internal'
+		}
+	}
+
     ## This will be the default configuration for all Hyper-V components built by this Lab module
 	DefaultVirtualMachineConfiguration = @{
 		VirtualSwitch = @{

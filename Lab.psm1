@@ -440,11 +440,10 @@ function Get-LabVhd
 		$defaultVhdPath = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path
 
 		$icmParams = @{
-			ComputerName = $script:LabConfiguration.HostServer.Name
 			ScriptBlock = { Get-ChildItem -Path $args[0] -File | foreach { Get-VHD -Path $_.FullName } }
 			ArgumentList = $defaultVhdPath
 		}
-		Invoke-Command @icmParams
+		InvokeHyperVCommand @icmParams
 	}
 	catch
 	{
@@ -453,7 +452,7 @@ function Get-LabVhd
 }
 function Get-LabVm
 {
-	[CmdletBinding()]
+	[CmdletBinding(DefaultParameterSetName = 'Name')]
 	param
 	(
 		[Parameter(ParameterSetName = 'Name')]
@@ -477,11 +476,10 @@ function Get-LabVm
 
 	try {
 		$icmParams = @{
-			ComputerName = $script:LabConfiguration.HostServer.Name
 			ScriptBlock = { $name = $args[0]; @(Get-VM).where({ $_.Name -match $name }) }
 			ArgumentList = $nameMatch
 		}
-		Invoke-Command @icmParams
+		InvokeHyperVCommand @icmParams
 	}
 	catch
 	{
@@ -490,6 +488,30 @@ function Get-LabVm
 		}
 	}
 }
+function InvokeHyperVCommand
+{
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[scriptblock]$Scriptblock,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[object[]]$ArgumentList
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$icmParams = @{
+		ComputerName = $script:LabConfiguration.HostServer.Name
+		ScriptBlock = $Scriptblock
+		ArgumentList = $ArgumentList
+	}
+	Invoke-Command @icmParams
+
+}
 function New-LabSwitch
 {
 	[CmdletBinding()]
@@ -497,12 +519,12 @@ function New-LabSwitch
 	(
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$Name = $script:LabConfiguration.Environment.Switch.Name,
+		[string]$Name = $script:LabConfiguration.HyperVConfiguration.Switch.Name,
 	
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[ValidateSet('Internal','External')]
-		[string]$SwitchType	= $script:LabConfiguration.Environment.Switch.Type
+		[string]$Type = $script:LabConfiguration.HyperVConfiguration.Switch.Type
 		
 	)
 	begin
@@ -513,18 +535,12 @@ function New-LabSwitch
 	{
 		try
 		{
-			if (-not (Get-LabSwitch | where { $_.Name -eq $Name }))
-			{
-				$sParams = @{
-					'Name' = $Name
-					'SwitchType' = $SwitchType
+			$scriptBlock = {
+				if (-not (Get-VmSwitch -Name $args[0] -SwitchType $args[1] -ErrorAction Ignore)) {
+					New-VMSwitch -Name $args[0] -SwitchType $args[1]
 				}
-				New-VMSwitch @sParams
 			}
-			else
-			{
-				Write-Verbose -Message "The lab switch [$($Name)] already exists."	
-			}
+			$null = InvokeHyperVCommand -Scriptblock $scriptBlock -ArgumentList $Name,$Type		
 		}
 		catch
 		{
