@@ -6,19 +6,21 @@
     
     ## This is the path on the Hyper-V hosts where you have the ISOs for each OS to install on the VMs is located
 	IsoFolderPath = 'C:\MyLab\ISOs' 
+
+	## The unattended XML file template that's used to create an answer file for all new OS installs
+	UnattendXmlPath = '.\AutoUnattend'
     
-    ## Each ISO file needs to be mapped to a particular operating system. Ensure every ISO is defined below with the operating system it is.
+    ## Each ISO file needs to be mapped to a particular label. Ensure every ISO is defined with a label.
 	ISOs = @( ## Define each
 		@{
-			FileName = 'en_windows_server_2012_r2_with_update_x64_dvd_4065220.iso' 
-			OS = 'Windows Server 2016'
+			FileName = 'en_windows_server_2016_x64_dvd_9718492.iso'
+			Name = 'Windows Server 2016'
+		}
+		@{
+			FileName = 'en_sql_server_2016_standard_x64_dvd_8701871.iso' 
+			Name = 'SQL Server 2016'
 		}
 	)
-
-	Software = @{
-		## This is the path where the SQL Server setup is located on the Hyper-V host
-		SQLServerInstallerPath = 'C:\MyLab\SQLServer\setup.exe'
-	}
 
     ## Define the name and IP address of the Hyper-V host here
 	HostServer = @{
@@ -36,13 +38,13 @@
 			Size = '40GB' 
 			Type = 'VHDX' 
 			Sizing = 'Dynamic' 
-			Path = 'C:\Lab\VHDs' 
+			Path = 'C:\MyLab\VHDs' 
 			PartitionStyle = 'GPT'
 		} 
 		VMConfig = @{
 			StartupMemory = '4GB' 
 			ProcessorCount = 1 
-			Path = 'C:\Lab\VMs' 
+			Path = 'C:\MyLab\VMs' 
 			Generation = 2
 			OSEdition = 'ServerStandardCore'
 		}
@@ -53,19 +55,19 @@
 	## name ie. SQLSRV, SQLSRV2, SQLSRV3, etc.
 	VirtualMachines = @(
 		@{
-			Name = 'SQLSRV'
+			BaseName = 'SQLSRV'
 			Type = 'SQL'
 			OS = 'Windows Server 2016'
 			Edition = 'ServerStandardCore'
 		}
 		@{
-			Name = 'WEBSRV'
+			BaseName = 'WEBSRV'
 			Type = 'Web'
 			OS = 'Windows Server 2016'
 			Edition = 'ServerStandardCore'
 		}
 		@{
-			Name = 'LABDC'
+			BaseName = 'LABDC'
 			Type = 'Domain Controller'
 			OS = 'Windows Server 2016' 
 			Edition = 'ServerStandardCore'

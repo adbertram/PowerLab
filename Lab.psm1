@@ -44,14 +44,19 @@ function Get-LabIso
 	(
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[ValidateScript({ Test-IsOsValid $_ })]
-		[string]$OperatingSystem
+		[ValidateScript({ TestIsIsoNameValid $_ })]
+		[string]$Name
 		
 	)
 	$ErrorActionPreference = 'Stop'
-	$isoName = @($script:LabConfiguration.ISOs).where({ $_.OS -eq $OperatingSystem })
+	$isoFileName = (@($script:LabConfiguration.ISOs).where({ $_.Name -eq $Name })).FileName
 	
-	Get-ChildItem -Path $script:LabConfiguration.IsoFolderPath -Filter $isoName
+	$convertParams = @{
+		LocalFilePath = $script:LabConfiguration.IsoFolderPath
+		ComputerName = $script:LabConfiguration.HostServer.Name
+	}
+	$uncIsoFolderPath = ConvertTo-UncPath @convertParams
+	Get-ChildItem -Path $uncIsoFolderPath -Filter $isoFileName
 
 }
 function New-ActiveDirectoryForest
@@ -165,7 +170,7 @@ function New-LabVirtualMachine
 		$whereFilter = { '*' }
 	}
 
-	$name = Get-NextLabVirtualMachineName -Type $ServerType
+	$name = Get-NextLabVmName -Type $ServerType
 
 	## Create the VM
 	$vmParams = @{
@@ -187,7 +192,7 @@ function New-LabVirtualMachine
 	}
 	
 }
-function Test-IsOsValid
+function TestIsIsoNameValid
 {
 	[OutputType([bool])]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -195,11 +200,11 @@ function Test-IsOsValid
 	(
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[string]$OperatingSystem
+		[string]$Name
 	)
 
-	if ($OperatingSystem -notin $script:LabConfiguration.ISOs.OS) {
-		throw "The operating system '$OperatingSystem' is not supported."
+	if ($Name -notin $script:LabConfiguration.ISOs.Name) {
+		throw "The ISO with label '$Name' could not be found."
 	} else {
 		$true
 	}
@@ -216,7 +221,7 @@ function Add-OperatingSystem
 	
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[ValidateScript({ Test-IsOsValid $_ })]
+		[ValidateScript({ TestIsIsoNameValid $_ })]
 		[string]$OperatingSystem
 		
 	)
@@ -422,42 +427,61 @@ function New-LabVhd
 }
 function Get-LabVhd
 {
-	[CmdletBinding(DefaultParameterSetName = 'None')]
+	[CmdletBinding()]
 	param
 	(
-		[Parameter(ParameterSetName = 'Name')]
+		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[ValidatePattern('\.vhdx?$')]
-		[string]$Name,
-		
-		[Parameter(ParameterSetName = 'Path')]
-		[ValidateNotNullOrEmpty()]
-		[ValidatePattern('^\w:.+\.vhdx?$')]
-		[string]$Path
+		[string]$Name
 	
 	)
 	try
 	{
-		if ($PSCmdlet.ParameterSetName -eq 'None')
-		{
-			$vhdsPath = ConvertTo-UncPath -LocalFilePath ($script:LabConfiguration.DefaultVHDConfig).Path -ComputerName $script:LabConfiguration.HostServer.Name
-			Get-ChildItem -Path $vhdsPath -File | foreach {
-				Get-VHD -Path $_.FullName -ComputerName $script:LabConfiguration.HostServer.Name
-			}
-		}
-		else
-		{
-			$vhdsPath = ($script:LabConfiguration.DefaultVHDConfig).Path
-			if ($PSBoundParameters.ContainsKey('Name')) {
-				$Path = "$vhdsPath\$Name"
-			}
+		$defaultVhdPath = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path
 
-			Get-Vhd -Path $Path -ComputerName $script:LabConfiguration.HostServer.Name
+		$icmParams = @{
+			ComputerName = $script:LabConfiguration.HostServer.Name
+			ScriptBlock = { Get-ChildItem -Path $args[0] -File | foreach { Get-VHD -Path $_.FullName } }
+			ArgumentList = $defaultVhdPath
 		}
+		Invoke-Command @icmParams
 	}
 	catch
 	{
 		$PSCmdlet.ThrowTerminatingError($_)
+	}
+}
+function Get-LabVm
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$Name
+	
+	)
+	$ErrorActionPreference = 'Stop'
+
+	$nameMatch = $script:LabConfiguration.VirtualMachines.BaseName -join '|'
+	if ($PSBoundParameters.ContainsKey('Name'))
+	{
+		$nameMatch = $Name
+	}
+
+	try {
+		$icmParams = @{
+			ComputerName = $script:LabConfiguration.HostServer.Name
+			ScriptBlock = { $name = $args[0]; @(Get-VM).where({ $_.Name -match $name }) }
+			ArgumentList = $nameMatch
+		}
+		Invoke-Command @icmParams
+	}
+	catch
+	{
+		if ($_.Exception.Message -notmatch 'Hyper-V was unable to find a virtual machine with name') {
+			$PSCmdlet.ThrowTerminatingError($_)
+		}
 	}
 }
 function New-LabSwitch
@@ -555,39 +579,6 @@ function ConvertTo-UncPath
 		}
 	}
 }
-function Get-OperatingSystemAnswerFile
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$VMName
-		
-	)
-	begin
-	{
-		$ErrorActionPreference = 'Stop'
-	}
-	process
-	{
-		try
-		{
-			$ansPath = $script:LabConfiguration.Configuration.Folders.SelectSingleNode("//Folder[@Name='UnattendXml' and @Location='HostServer']").Path
-			$icmParams = @{
-				'ComputerName' = $script:LabConfiguration.HostServer.Name
-				'Credential' = $HostServer.Credential
-				'ScriptBlock' = { Get-Item -Path "$using:ansPath\$using:VMName.xml" }
-			}
-			Invoke-Command @icmParams
-		}
-		catch
-		{
-			Write-Error $_.Exception.Message
-		}
-	}
-}
-
 function Invoke-Program
 {
 	[OutputType('void')]
@@ -624,31 +615,7 @@ function Invoke-Program
 		throw "Process failed with exit code [$($process.ReturnValue)]"
 	}
 }
-
-function Get-LabVirtualMachine
-{
-	[OutputType('$')]
-	[CmdletBinding(SupportsShouldProcess)]
-	param
-	(
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[string]$Type
-	)
-
-	$whereFilter = { '*' }
-	if ($PSBoundParameters.ContainsKey('Type'))
-	{
-		$whereFilter = [scriptblock]::Create("`$_.Type -eq $Type")
-	}
-
-	$baseNames = @($script:LabConfiguration.VirtualMachines).where($whereFilter)
-	$queryString = $baseNames -join '|'
-	@(Get-Vm -ComputerName $script:LabConfiguration.HostServer.Name).where({ $_.Name -match "^$queryString" })
-	
-}
-
-function Get-NextLabVirtualMachineName
+function Get-NextLabVmName
 {
 	[OutputType('string')]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -659,10 +626,72 @@ function Get-NextLabVirtualMachineName
 		[string]$Type
 	)
 
-	$highNumberVm = Get-LabVirtualMachine -Type $Type | Sort-Object -Descending | Select-Object -First 1
+	$highNumberVm = Get-LabVm -Type $Type | Sort-Object -Descending | Select-Object -First 1
 	if (-not ($highNum = $highNumberVm -replace '[a-z][A-Z]+')) {
 		$highNum = 1
 	}
 	
 	'{0}{1}' -f $Type,$highNum
+}
+
+function Test-lab
+{
+	[OutputType('bool')]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$uncProjectRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+	$isoRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.IsoFolderPath -ComputerName $script:LabConfiguration.HostServer.Name
+	$vhdRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
+	$vmRoot = ConvertTo-UncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
+
+	$rules = @(
+		@{
+			Test = { Test-Connection -ComputerName $script:LabConfiguration.HostServer.Name -Quiet -Count 1 }
+			FailMessage = 'They Hyper-V server could not be contacted.'
+		}
+		@{
+			Test = { Test-Path -Path $uncProjectRoot -PathType Container }
+			FailMessage = 'The ProjecRootFolder in Lab Configuration could not be found.'
+		}
+		@{
+			Test = { Test-Path -Path $isoRoot -PathType Container }
+			FailMessage = 'The IsoFolderPath in Lab Configuration could not be found.'
+		}
+		@{
+			Test = { Test-Path -Path $vhdRoot -PathType Container }
+			FailMessage = 'The default VHD path in Lab Configuration could not be found.'
+		}
+		@{
+			Test = { Test-Path -Path $vmRoot -PathType Container }
+			FailMessage = 'The default VM path in Lab Configuration could not be found.'
+		}
+		@{
+			Test = { 
+				if ($failures = @($script:LabConfiguration.ISOs).where({ -not (Test-Path -Path "$isoRoot\$($_.FileName)" -PathType Leaf)})) {
+					$false
+				} else {
+					$true
+				}
+			}
+			FailMessage = 'One or more ISOs specified in the ISOs section of Lab Configuration could not be found.'
+		}
+	)
+
+	try {
+		foreach ($rule in $rules) {
+			if (-not (& $rule.Test)) {
+				throw $rule.FailMessage
+			}
+		}
+		$true
+	} catch {
+		$PSCmdlet.ThrowTerminatingError($_)
+	}
+	
 }
