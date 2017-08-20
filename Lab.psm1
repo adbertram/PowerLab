@@ -20,7 +20,7 @@ function New-Lab
 	try
 	{		
 		## Create the switch
-		New-LabSwitch
+		NewLabSwitch
 
 		## Create the domain controller
 		New-ActiveDirectoryForest
@@ -36,29 +36,6 @@ function New-Lab
 	{
 		Write-Error  "$($_.Exception.Message) - Line Number: $($_.InvocationInfo.ScriptLineNumber)"
 	}
-}
-function Get-LabIso
-{
-	[OutputType('System.IO.FileInfo')]
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[ValidateScript({ TestIsIsoNameValid $_ })]
-		[string]$Name
-		
-	)
-	$ErrorActionPreference = 'Stop'
-	$isoFileName = (@($script:LabConfiguration.ISOs).where({ $_.Name -eq $Name })).FileName
-	
-	$convertParams = @{
-		LocalFilePath = $script:LabConfiguration.IsoFolderPath
-		ComputerName = $script:LabConfiguration.HostServer.Name
-	}
-	$uncIsoFolderPath = ConvertToUncPath @convertParams
-	Get-ChildItem -Path $uncIsoFolderPath -Filter $isoFileName
-
 }
 function New-ActiveDirectoryForest
 {
@@ -259,7 +236,7 @@ function AddOperatingSystem
 	try
 	{	
 		$vhdName = "$($InputObject.Name).$($script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Type)"
-		$vhd = New-LabVhd -Name $vhdName -OperatingSystem $OperatingSystem
+		$vhd = NewLabVhd -Name $vhdName -OperatingSystem $OperatingSystem
 
 		$invParams = @{
 			Scriptblock = { 
@@ -349,7 +326,7 @@ function ConvertToVirtualDisk
 				if ($args[8]) {
 					$convertParams.UnattendPath = $args[8]
 				}
-				Convert-WindowsImage @convertParams
+				$null = Convert-WindowsImage @convertParams
 			}
 
 			$icmParams = @{
@@ -367,7 +344,7 @@ function ConvertToVirtualDisk
 		}
 	}
 }
-function New-LabVhd
+function NewLabVhd
 {
 	[CmdletBinding(DefaultParameterSetName = 'None')]
 	param
@@ -414,7 +391,7 @@ function New-LabVhd
 				$isoFileName = $script:LabConfiguration.ISOs.where({ $_.Name -eq $OperatingSystem }).FileName
 				$cvtParams = $params + @{
 					IsoFilePath = Join-Path -Path $script:LabConfiguration.IsoFolderPath -ChildPath $isoFileName
-					VhdPath = '{0}.vhdx' -f (Join-Path -Path $vhdPath -ChildPath ($Name -replace ' '))
+					VhdPath = '{0}.vhdx' -f (Join-Path -Path $vhdPath -ChildPath ($OperatingSystem -replace ' '))
 					VhdFormat = 'VHDX'
 					Sizing = $Sizing
 					PassThru = $true
@@ -539,7 +516,7 @@ function InvokeHyperVCommand
 	Invoke-Command @icmParams
 
 }
-function New-LabSwitch
+function NewLabSwitch
 {
 	[CmdletBinding()]
 	param
@@ -611,42 +588,6 @@ function ConvertToUncPath
 		}
 	}
 }
-function InvokeProgram
-{
-	[OutputType('void')]
-	[CmdletBinding(SupportsShouldProcess)]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$ComputerName,
-
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$Command,
-
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[pscredential]$Credential
-	)
-	
-	$wmiParams = @{
-		ComputerName = $ComputerName
-		Class = 'Win32_Process'
-		Name = 'Create'
-		Args = $Command
-	}
-
-	if ($PSBoundParameters.ContainsKey('Credential'))
-	{
-		$wmiParams.Credential = $Credential
-	}
-	$process = Invoke-WmiMethod @wmiParams
-	if ($process.ReturnValue -ne 0)
-	{
-		throw "Process failed with exit code [$($process.ReturnValue)]"
-	}
-}
 function GetNextLabVmName
 {
 	[OutputType('string')]
@@ -669,7 +610,7 @@ function GetNextLabVmName
 	
 	'{0}{1}' -f $baseName,$highNum
 }
-function Test-lab
+function Test-Lab
 {
 	[OutputType('bool')]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -761,7 +702,7 @@ function GetUnattendXmlFile
 	Get-ChildItem -Path "$PSScriptRoot\AutoUnattend" -Filter "$OperatingSystem.xml"
 
 }		
-function PrepareUnattendXml
+function PrepareUnattendXmlFile
 {
 	[CmdletBinding(SupportsShouldProcess)]
 	param
