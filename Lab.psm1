@@ -8,7 +8,6 @@ Set-StrictMode -Version Latest
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 #endregion
-
 function New-Lab
 {
 	[CmdletBinding()]
@@ -100,7 +99,7 @@ function Install-IIS
 		[string]$ComputerName
 	)
 
-	$null = Invoke-Command -ComputerName $ComputerName -ScriptBlock { Install-WindowsFeature -Name Web-Server }
+	$null = InvokeHypervCommand -ScriptBlock { Install-WindowsFeature -Name Web-Server }
 	
 }
 function Install-SqlServer
@@ -128,10 +127,10 @@ function Install-SqlServer
 function New-LabVm
 {
 	[OutputType([void])]
-	[CmdletBinding(SupportsShouldProcess)]
+	[CmdletBinding()]
 	param
 	(
-		[Parameter()]
+		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
 		[ValidateSet('SQL','Web','Domain Controller')]
 		[string]$Type,
@@ -140,13 +139,6 @@ function New-LabVm
 		[ValidateNotNullOrEmpty()]
 		[switch]$PassThru
 	)
-
-	if ($PSBoundParameters.ContainsKey('Type'))
-	{
-		$whereFilter = [scriptblock]::Create("`$_.Type -eq $Type")
-	} else {
-		$whereFilter = { '*' }
-	}
 
 	$name = GetNextLabVmName -Type $Type
 
@@ -158,14 +150,13 @@ function New-LabVm
 			MemoryStartupBytes = $args[2]
 			Switch = $args[3]
 			Generation = $args[4]
-			PassThru = $true
 		}
-		$vm = New-VM @vmParams
+		New-VM @vmParams
 	}
 	$argList = @(
 		$name
 		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
-		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.StartupMemory
+		(Invoke-Expression -Command $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.StartupMemory)
 		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
 		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VmConfig.Generation
 	)
@@ -173,7 +164,7 @@ function New-LabVm
 
 	## Create the VHD and install Windows on the VM
 	$os = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}).OS
-	$vm | AddOperatingSystem -OperatingSystem $os
+	AddOperatingSystem -Vm $vm -OperatingSystem $os
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -221,9 +212,9 @@ function AddOperatingSystem
 	[CmdletBinding()]
 	param
 	(
-		[Parameter(Mandatory,ValueFromPipeline)]
+		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[Microsoft.HyperV.PowerShell.VirtualMachine]$InputObject,
+		[object]$Vm,
 	
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
@@ -235,25 +226,25 @@ function AddOperatingSystem
 	$ErrorActionPreference = 'Stop'
 	try
 	{	
-		$vhdName = "$($InputObject.Name).$($script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Type)"
-		$vhd = NewLabVhd -Name $vhdName -OperatingSystem $OperatingSystem
+		$vhd = NewLabVhd -OperatingSystem $OperatingSystem -PassThru
 
 		$invParams = @{
-			Scriptblock = { 
-				$args[0] | Add-VMHardDiskDrive -Path $args[1]
-				$bootOrder = ($args[0] | Get-VMFirmware).Bootorder
+			Scriptblock = {
+				$vm = Get-Vm -Name $args[0]
+				$vm | Add-VMHardDiskDrive -Path $args[1]
+				$bootOrder = ($vm | Get-VMFirmware).Bootorder
 				if ($bootOrder[0].BootType -ne 'Drive')
 				{
-					$args[0] | Set-VMFirmware -FirstBootDevice $args[0].HardDrives[0]
+					$vm | Set-VMFirmware -FirstBootDevice $vm.HardDrives[0]
 				}
 			}
-			ArgumentList = $vhd,$vhd.ImagePath
+			ArgumentList = $Vm.Name,$vhd.Path
 		}
 		InvokeHyperVCommand @invParams
 	}
 	catch
 	{
-		Write-Error $_.Exception.Message
+		$PSCmdlet.ThrowTerminatingError($_)
 	}
 }
 function ConvertToVirtualDisk
@@ -295,11 +286,7 @@ function ConvertToVirtualDisk
 	
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$VHDPartitionStyle = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.PartitionStyle,
-	
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[switch]$PassThru
+		[string]$VHDPartitionStyle = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.PartitionStyle
 		
 	)
 	process
@@ -326,17 +313,15 @@ function ConvertToVirtualDisk
 				if ($args[8]) {
 					$convertParams.UnattendPath = $args[8]
 				}
-				$null = Convert-WindowsImage @convertParams
+				Convert-WindowsImage @convertParams
+				Get-Vhd -Path $args[5]
 			}
 
 			$icmParams = @{
 				ScriptBlock = $sb
 				ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChildPath 'Convert-WindowsImage.ps1'),$IsoFilePath,$SizeBytes,$Edition,$VhdFormat,$VhdPath,$Sizing,$VHDPartitionStyle,$localTempAnswerFilePath
 			}
-			$result = InvokeHyperVCommand @icmParams
-			if ($PassThru.IsPresent) {
-				$result
-			}
+			InvokeHyperVCommand @icmParams
 		} catch {
 			$PSCmdlet.ThrowTerminatingError($_)
 		} finally {
@@ -394,7 +379,6 @@ function NewLabVhd
 					VhdPath = '{0}.vhdx' -f (Join-Path -Path $vhdPath -ChildPath ($OperatingSystem -replace ' '))
 					VhdFormat = 'VHDX'
 					Sizing = $Sizing
-					PassThru = $true
 					AnswerFilePath = $answerFilePath
 				}
 
@@ -475,7 +459,7 @@ function Get-LabVm
 	{
 		$nameMatch = $Name
 	} elseif ($PSBoundParameters.ContainsKey('Type')) {
-		$nameMatch = 'DC'
+		$nameMatch = $Type
 	}
 
 	try {
@@ -509,10 +493,15 @@ function InvokeHyperVCommand
 	$ErrorActionPreference = 'Stop'
 
 	$icmParams = @{
-		ComputerName = $script:LabConfiguration.HostServer.Name
 		ScriptBlock = $Scriptblock
 		ArgumentList = $ArgumentList
 	}
+	
+	if (-not (Get-Variable 'hypervSession' -Scope Script -ErrorAction Ignore)) {
+		$script:hypervSession = New-PSSession -ComputerName $script:LabConfiguration.HostServer.Name
+	}
+	$icmParams.Session = $script:hypervSession
+	
 	Invoke-Command @icmParams
 
 }
@@ -599,16 +588,20 @@ function GetNextLabVmName
 		[string]$Type
 	)
 
-	$highNumberVm = Get-LabVm -Type $Type | Sort-Object -Descending | Select-Object -First 1
-	if (-not $highNumberVm -or ($highNum = $highNumberVm -replace '[a-z][A-Z]+')) {
-		$highNum = 1
-	}
 	if (-not ($types = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}))) {
 		throw "Unrecognize VM type: [$($Type)]"
 	}
+
+	if (-not ($highNumberVm = Get-LabVm -Type $Type | Select -ExpandProperty Name | Sort-Object -Descending | Select-Object -First 1)) {
+		$highNum = 1
+	} else {
+		[int]$highNum = [regex]::matches($highNumberVm,'(\d+)$').Groups[1].Value
+	}
+	$nextNum = $highNum + 1
+	
 	$baseName = $types.BaseName
 	
-	'{0}{1}' -f $baseName,$highNum
+	'{0}{1}' -f $baseName,$nextNum
 }
 function Test-Lab
 {
@@ -670,6 +663,19 @@ function Test-Lab
 
 			}
 			FailMessage = 'One or more operating systems do not have a unattend.xml file in the AutoAttend folder.'
+		}
+		@{
+			Test = { 
+				$validOses = $script:LabConfiguration.ISOs.where({ $_.Type -eq 'OS'}).Name
+				$vmOsesDefined = $script:LabConfiguration.VirtualMachines.OS
+				if ($vmOsesDefined.where({ $_ -notin $validOses})) {
+					$false
+				} else {
+					$true
+				}
+
+			}
+			FailMessage = 'One or more virtual machines in the VirtualMachines section of lab configuration do not have a corresponding ISO available.'
 		}
 	)
 
