@@ -3,7 +3,8 @@
 #region Configuration
 Set-StrictMode -Version Latest
 
-$configFilePath = "$PSScriptRoot\LabConfiguration.psd1"
+## Change this back to LabConfiguration.psd1
+																				$configFilePath = "$PSScriptRoot\MyLabConfiguration.psd1"
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 #endregion
@@ -220,6 +221,24 @@ function TestIsIsoNameValid
 	}
 	
 }
+function TestIsOsNameValid
+{
+	[OutputType([bool])]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Name
+	)
+
+	if (($Name -notin ($script:LabConfiguration.ISOs | Where-Object { $_.Type -eq 'OS' }).Name)) {
+		throw "The operating system name '$Name' is not valid."
+	} else {
+		$true
+	}
+	
+}
 function AddOperatingSystem
 {
 	[CmdletBinding()]
@@ -231,7 +250,7 @@ function AddOperatingSystem
 	
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[ValidateScript({ TestIsIsoNameValid $_ })]
+		[ValidateScript({ TestIsOsNameValid $_ })]
 		[string]$OperatingSystem
 		
 	)
@@ -310,7 +329,11 @@ function ConvertToVirtualDisk
 	{
 		try
 		{
-			Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $script:LabConfiguration.ProjectRootFolder -Force
+			$projectRootUnc = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+			Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $projectRootUnc -Force
+
+			$tempAnswerFile = Copy-Item -Path $AnswerFilePath -Destination $projectRootUnc -Force -PassThru
+			$localTempAnswerFilePath = $tempanswerfile.Fullname -replace '.*(\w)\$','$1:'
 			
 			$sb = {
 				. $args[0]
@@ -330,18 +353,17 @@ function ConvertToVirtualDisk
 			}
 
 			$icmParams = @{
-				ComputerName = $script:LabConfiguration.HostServer.Name
 				ScriptBlock = $sb
-				ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChilPath './Convert-WindowsImage.ps1'),$IsoFilePath,$SizeBytes,$Edition,$VhdFormat,$VhdPath,$Sizing,$VHDPartitionStyle,$AnswerFilePath
+				ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChildPath 'Convert-WindowsImage.ps1'),$IsoFilePath,$SizeBytes,$Edition,$VhdFormat,$VhdPath,$Sizing,$VHDPartitionStyle,$localTempAnswerFilePath
 			}
-			$result = Invoke-Command @icmParams
+			$result = InvokeHyperVCommand @icmParams
 			if ($PassThru.IsPresent) {
 				$result
 			}
-		}
-		catch
-		{
-			Write-Error -Message $_.Exception.Message
+		} catch {
+			$PSCmdlet.ThrowTerminatingError($_)
+		} finally {
+			Remove-Item -Path $tempAnswerFile -ErrorAction Ignore
 		}
 	}
 }
@@ -351,7 +373,7 @@ function New-LabVhd
 	param
 	(
 		
-		[Parameter(Mandatory)]
+		[Parameter(Mandatory,ParameterSetName = 'Name')]
 		[ValidateNotNullOrEmpty()]
 		[string]$Name,
 		
@@ -368,7 +390,11 @@ function New-LabVhd
 		[Parameter(Mandatory,ParameterSetName = 'OSInstall')]
 		[ValidateNotNullOrEmpty()]
 		[ValidateScript({ TestIsIsoNameValid $_ })]
-		[string]$OperatingSystem
+		[string]$OperatingSystem,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$PassThru
 	)
 	begin
 	{
@@ -384,22 +410,23 @@ function New-LabVhd
 			$vhdPath = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path
 			if ($PSBoundParameters.ContainsKey('OperatingSystem'))
 			{
-				$answerFilePath = "$PSScriptRoot\AutoUnattend\$OperatingSystem.xml"
+				$answerFilePath = (GetUnattendXmlFile -OperatingSystem $OperatingSystem).FullName
+				$isoFileName = $script:LabConfiguration.ISOs.where({ $_.Name -eq $OperatingSystem }).FileName
 				$cvtParams = $params + @{
-					IsoFilePath = $script:LabConfiguration.ISOs.where({ $_.Name -eq $OperatingSystem })
-					VhdPath = "$vhdPath\$Name.vhdx"
+					IsoFilePath = Join-Path -Path $script:LabConfiguration.IsoFolderPath -ChildPath $isoFileName
+					VhdPath = '{0}.vhdx' -f (Join-Path -Path $vhdPath -ChildPath ($Name -replace ' '))
 					VhdFormat = 'VHDX'
 					Sizing = $Sizing
 					PassThru = $true
-					AnswerFilePath = $UnattendedXmlPath
+					AnswerFilePath = $answerFilePath
 				}
 
-				ConvertToVirtualDisk @cvtParams
+				$vhd = ConvertToVirtualDisk @cvtParams
 			}
 			else
 			{
 				$params.ComputerName = $script:LabConfiguration.HostServer.Name
-				$params.Path = "$Path\$Name.$Type"
+				$params.Path = "$vhdPath\$Name.vhdx"
 				if ($Sizing -eq 'Dynamic')
 				{
 					$params.Dynamic = $true
@@ -408,7 +435,15 @@ function New-LabVhd
 				{
 					$params.Fixed = $true
 				}
-				New-VHD @params
+
+				$invParams = @{
+					ScriptBlock = { $params = $args[0]; New-VHD @params }
+					ArgumentList = $params
+				}
+				$vhd = InvokeHyperVCommand @invParams
+			}
+			if ($PassThru.IsPresent) {
+				$vhd
 			}
 		}
 		catch
@@ -709,6 +744,23 @@ function Test-lab
 	}
 	
 }
+function GetUnattendXmlFile
+{
+	[OutputType('System.IO.FileInfo')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[ValidateScript({ TestIsOsNameValid $_ })]
+		[string]$OperatingSystem
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	Get-ChildItem -Path "$PSScriptRoot\AutoUnattend" -Filter "$OperatingSystem.xml"
+
+}		
 function PrepareUnattendXml
 {
 	[CmdletBinding(SupportsShouldProcess)]
