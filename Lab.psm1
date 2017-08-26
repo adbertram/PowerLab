@@ -154,12 +154,6 @@ function New-LabVm {
 	## Create the VHD and install Windows on the VM
 	$os = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}).OS
 	AddOperatingSystem -Vm $vm -OperatingSystem $os
-
-	## Add the VM to the local computer's hosts file for name resolution
-
-
-	## Rename the Windows hostname
-	$vm = InvokeHyperVCommand -Scriptblock {Rename-Computer -NewName $args[0] -Force -Restart } -ArgumentList $name
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -216,8 +210,23 @@ function AddOperatingSystem {
 	)
 
 	$ErrorActionPreference = 'Stop'
-	try {	
-		$vhd = NewLabVhd -OperatingSystem $OperatingSystem -PassThru
+	try {
+		$templateAnswerFilePath = (GetUnattendXmlFile -OperatingSystem $OperatingSystem).FullName
+		$isoConfig = $script:LabConfiguration.ISOs.where({$_.Name -eq $OperatingSystem})
+		$prepParams = @{
+			Path         = $templateAnswerFilePath
+			VMName       = $vm.Name
+			IpAddress    = (NewVmIpAddress)
+			DnsServer    = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Network.DnsServer
+			ProductKey   = $isoConfig.ProductKey
+			UserName     = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Name
+			UserPassword = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Password
+		}
+		$answerFile = PrepareUnattendXmlFile @prepParams
+
+		if (-not ($vhd = NewLabVhd -OperatingSystem $OperatingSystem -AnswerFilePath $answerFile.FullName -Name $vm.Name -PassThru)) {
+			throw 'VHD creation failed'
+		}
 
 		$invParams = @{
 			Scriptblock  = {
@@ -277,41 +286,38 @@ function ConvertToVirtualDisk {
 		
 	)
 	process {
-		try {
-			$projectRootUnc = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
-			Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $projectRootUnc -Force
+		$ErrorActionPreference = 'Stop'
 
-			$tempAnswerFile = Copy-Item -Path $AnswerFilePath -Destination $projectRootUnc -Force -PassThru
-			$localTempAnswerFilePath = $tempanswerfile.Fullname -replace '.*(\w)\$', '$1:'
-			
-			$sb = {
-				. $args[0]
-				$convertParams = @{
-					SourcePath        = $args[1]
-					SizeBytes         = $args[2]
-					Edition           = $args[3]
-					VHDFormat         = $args[4]
-					VHDPath           = $args[5]
-					VHDType           = $args[6]
-					VHDPartitionStyle = $args[7]
-				}
-				if ($args[8]) {
-					$convertParams.UnattendPath = $args[8]
-				}
-				Convert-WindowsImage @convertParams
-				Get-Vhd -Path $args[5]
+		$projectRootUnc = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+		Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $projectRootUnc -Force
+		
+		## Copy the answer file to the Hyper-V host
+		Copy-Item -Path $AnswerFilePath -Destination $projectRootUnc -Force
+		$localTempAnswerFilePath = $projectrootunc -replace '.*(\w)\$', '$1:'
+		
+		$sb = {
+			. $args[0]
+			$convertParams = @{
+				SourcePath        = $args[1]
+				SizeBytes         = $args[2]
+				Edition           = $args[3]
+				VHDFormat         = $args[4]
+				VHDPath           = $args[5]
+				VHDType           = $args[6]
+				VHDPartitionStyle = $args[7]
 			}
-
-			$icmParams = @{
-				ScriptBlock  = $sb
-				ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChildPath 'Convert-WindowsImage.ps1'), $IsoFilePath, $SizeBytes, $Edition, $VhdFormat, $VhdPath, $Sizing, $VHDPartitionStyle, $localTempAnswerFilePath
+			if ($args[8]) {
+				$convertParams.UnattendPath = $args[8]
 			}
-			InvokeHyperVCommand @icmParams
-		} catch {
-			$PSCmdlet.ThrowTerminatingError($_)
-		} finally {
-			Remove-Item -Path $tempAnswerFile -ErrorAction Ignore
+			Convert-WindowsImage @convertParams
+			Get-Vhd -Path $args[5]
 		}
+
+		$icmParams = @{
+			ScriptBlock  = $sb
+			ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChildPath 'Convert-WindowsImage.ps1'), $IsoFilePath, $SizeBytes, $Edition, $VhdFormat, $VhdPath, $Sizing, $VHDPartitionStyle, $localTempAnswerFilePath
+		}
+		InvokeHyperVCommand @icmParams
 	}
 }
 function NewLabVhd {
@@ -319,7 +325,7 @@ function NewLabVhd {
 	param
 	(
 		
-		[Parameter(Mandatory, ParameterSetName = 'Name')]
+		[Parameter(Mandatory, ParameterSetName = 'OSInstall')]
 		[ValidateNotNullOrEmpty()]
 		[string]$Name,
 		
@@ -335,8 +341,12 @@ function NewLabVhd {
 	
 		[Parameter(Mandatory, ParameterSetName = 'OSInstall')]
 		[ValidateNotNullOrEmpty()]
-		[ValidateScript({ TestIsIsoNameValid $_ })]
+		[ValidateScript({ TestIsOsNameValid $_ })]
 		[string]$OperatingSystem,
+
+		[Parameter(Mandatory, ParameterSetName = 'OSInstall')]
+		[ValidateNotNullOrEmpty()]
+		[string]$AnswerFilePath,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
@@ -352,16 +362,16 @@ function NewLabVhd {
 			}
 			$vhdPath = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path
 			if ($PSBoundParameters.ContainsKey('OperatingSystem')) {
-				$answerFilePath = (GetUnattendXmlFile -OperatingSystem $OperatingSystem).FullName
 				$isoFileName = $script:LabConfiguration.ISOs.where({ $_.Name -eq $OperatingSystem }).FileName
+
 				$cvtParams = $params + @{
 					IsoFilePath    = Join-Path -Path $script:LabConfiguration.IsoFolderPath -ChildPath $isoFileName
-					VhdPath        = '{0}.vhdx' -f (Join-Path -Path $vhdPath -ChildPath ($OperatingSystem -replace ' '))
+					VhdPath        = '{0}.vhdx' -f (Join-Path -Path $vhdPath -ChildPath $Name)
 					VhdFormat      = 'VHDX'
 					Sizing         = $Sizing
-					AnswerFilePath = $answerFilePath
+					AnswerFilePath = $AnswerFilePath
 				}
-
+				
 				$vhd = ConvertToVirtualDisk @cvtParams
 			} else {
 				$params.ComputerName = $script:LabConfiguration.HostServer.Name
@@ -385,6 +395,18 @@ function NewLabVhd {
 			Write-Error $_.Exception.Message
 		}
 	}
+}
+function NewVmIpAddress {
+	[OutputType('string')]
+	[CmdletBinding()]
+	param
+	()
+
+	$ipNet = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Network.IpNetwork
+	$ipBase = $ipNet -replace ".$($ipNet.Split('.')[-1])$"
+	$randomLastOctet = Get-Random -Minimum 10 -Maximum 254
+	$ipBase, $randomLastOctet -join '.'
+	
 }
 function Get-LabVhd {
 	[CmdletBinding()]
@@ -658,12 +680,25 @@ function GetUnattendXmlFile {
 
 }		
 function PrepareUnattendXmlFile {
+	[OutputType('System.IO.FileInfo')]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
 	(
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[string]$Path,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$VMName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$IpAddress,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$DnsServer,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
@@ -681,7 +716,7 @@ function PrepareUnattendXmlFile {
 	$ErrorActionPreference = 'Stop'
 
 	## Make a copy of the unattend XML
-	$tempUnattend = Copy-Item -Path $Path -Destination "$env:TEMP" -PassThru -Force
+	$tempUnattend = Copy-Item -Path $Path -Destination $env:TEMP -PassThru -Force
 
 	## Prep the XML object
 	$unattendText = Get-Content -Path $tempUnattend.FullName -Raw
@@ -691,7 +726,6 @@ function PrepareUnattendXmlFile {
 
 	## Insert the correct product key
 	$xUnattend.SelectSingleNode('//ns:ProductKey', $ns).InnerText = $ProductKey
-	$xUnattend.Save($tempUnattend.FullName)
 	
 	## Insert the user name and password
 	$userxPaths = '//ns:FullName', '//ns:Username', '//ns:DisplayName', '//ns:Name'
@@ -704,16 +738,19 @@ function PrepareUnattendXmlFile {
 		$xUnattend.SelectSingleNode($_, $ns).InnerXml = $UserPassword
 	}
 
-	$ns = New-Object System.Xml.XmlNamespaceManager($xunattend.NameTable)
-	$ns.AddNamespace('ns', $xUnattend.DocumentElement.NamespaceURI)
-	
-	, '//ns:Autologon/ns:Password/ns:Value'
+	$xUnattend.SelectSingleNode('//ns:AutoLogon/ns:Password/ns:Value', $ns).InnerText = $UserPassword
 
+	## Insert the host name
+	$xUnattend.SelectSingleNode('//ns:ComputerName', $ns).InnerText = $VMName
+
+	## Insert the NIC configuration
+	# $xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$IpAddress/24"
+	# $xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
+
+	## Save the config back to the XML file
 	$xUnattend.Save($tempUnattend.FullName)
 
-	## Add the AutoUnattend.xml file to the root of the ISO
-	# Write-Host "The XML file at [$($tempUnattend.FullName)] is now ready to be added to the ISO."
-	# Add-FileToIso -IsoPath -FilePath $tempUnattend.FullName	
+	$tempUnattend
 }
 
 function Add-FileToIso {

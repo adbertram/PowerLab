@@ -155,6 +155,11 @@
 				<SystemDefaultBackgroundColor>2</SystemDefaultBackgroundColor>
 			</VisualEffects>
 		</component>
+		<!-- <component name="Microsoft-Windows-TCPIP" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" 
+		xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" 
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><Interfaces><Interface wcm:action="add"><Identifier>Local Area Network</Identifier><Ipv4Settings><DhcpEnabled>false</DhcpEnabled></Ipv4Settings><UnicastIpAddresses><IpAddress wcm:action="add" wcm:keyValue="1">XXX.XXX.XXX.XXX/24</IpAddress></UnicastIpAddresses></Interface></Interfaces></component><component name="Microsoft-Windows-DNS-Client" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" 
+		xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" 
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><Interfaces><Interface wcm:action="add"><DNSServerSearchOrder><IpAddress wcm:action="add" wcm:keyValue="1">XXX.XXX.XXX.XXX</IpAddress></DNSServerSearchOrder><DNSDomain>mylab.local</DNSDomain><DisableDynamicUpdate>false</DisableDynamicUpdate><Identifier>Local Area Network</Identifier></Interface></Interfaces><DNSDomain>mylab.local</DNSDomain></component> -->
 		<component name="Microsoft-Windows-ehome-reg-inf" processorArchitecture="x86" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="NonSxS" 
 			xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" 
 			xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -167,5 +172,3 @@
 		</component>
 	</settings>
 </unattend>
-
-
