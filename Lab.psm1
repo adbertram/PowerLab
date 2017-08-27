@@ -159,7 +159,7 @@ function New-LabVm {
 		$name
 		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path
 		(Invoke-Expression -Command $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.StartupMemory)
-		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch.Name
+		(GetLabSwitch).Name
 		$script:LabConfiguration.DefaultVirtualMachineConfiguration.VmConfig.Generation
 	)
 	$vm = InvokeHyperVCommand -Scriptblock $scriptBlock -ArgumentList $argList
@@ -261,8 +261,9 @@ function AddOperatingSystem {
 		InvokeHyperVCommand @invParams
 
 		## Add the VM to the local hosts file
-		Add-HostsFileEntry -HostName $vm.Name -IpAddress $ipAddress
-		
+		if (-not (Get-HostsFileEntry | where {$_.HostName -eq $vm.Name})) {
+			Add-HostsFileEntry -HostName $vm.Name -IpAddress $ipAddress -ErrorAction Ignore
+		}
 	} catch {
 		$PSCmdlet.ThrowTerminatingError($_)
 	}
@@ -514,6 +515,25 @@ function InvokeHyperVCommand {
 	Invoke-Command @icmParams
 
 }
+function GetLabSwitch {
+	[OutputType('Microsoft.HyperV.PowerShell.VMSwitch')]
+	[CmdletBinding()]
+	param
+	()
+
+	$ErrorActionPreference = 'Stop'
+
+	$switchConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VirtualSwitch
+
+	$scriptBlock = {
+		if ($args[1] -eq 'External') {
+			Get-VmSwitch -SwitchType 'External'
+		} else {
+			Get-VmSwitch -Name $args[0] -SwitchType $args[1]
+		}
+	}
+	InvokeHyperVCommand -Scriptblock $scriptBlock -ArgumentList $switchConfig.Name, $switchConfig.Type
+}
 function NewLabSwitch {
 	[CmdletBinding()]
 	param
@@ -534,11 +554,22 @@ function NewLabSwitch {
 	process {
 		try {
 			$scriptBlock = {
-				if (-not (Get-VmSwitch -Name $args[0] -SwitchType $args[1] -ErrorAction Ignore)) {
-					New-VMSwitch -Name $args[0] -SwitchType $args[1]
+				if ($args[1] -eq 'External') {
+					if ($externalSwitch = Get-VmSwitch -SwitchType 'External') {
+						$switchName = $externalSwitch.Name
+					} else {
+						$switchName = $args[0]
+						$netAdapterName = (Get-NetAdapter -Physical| where { $_.Status -eq 'Up' }).Name
+						$null = New-VMSwitch -Name $args[0] -NetAdapterName $netAdapterName
+					}
+				} else {
+					$switchName = $args[0]
+					if (-not (Get-VmSwitch -Name $args[0] -ErrorAction Ignore)) {
+						$null = New-VMSwitch -Name $args[0] -SwitchType $args[1]
+					}
 				}
 			}
-			$null = InvokeHyperVCommand -Scriptblock $scriptBlock -ArgumentList $Name, $Type		
+			InvokeHyperVCommand -Scriptblock $scriptBlock -ArgumentList $Name, $Type
 		} catch {
 			Write-Error $_.Exception.Message
 		}
@@ -981,7 +1012,6 @@ function Wait-Ping {
 				}
 				Start-Sleep -Seconds 10;
 			}
-			Write-Log -Source $MyInvocation.MyCommand -Message "Ping is now available on [$($ComputerName)]. We waited $([Math]::Round($timer.Elapsed.TotalSeconds, 0)) seconds";
 		}
 	} catch {
 		$PSCmdlet.ThrowTerminatingError($_)
