@@ -205,16 +205,80 @@ function Install-SqlServer {
 	)
 	$ErrorActionPreference = 'Stop'
 
-	$uncProjectFolder = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
-	$copiedConfigFile = Copy-Item -Path "$PSScriptRoot\SqlServer.ini" -Destination $uncProjectFolder -PassThru
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
+	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 
-	$invokeParams = @{
+	## Copy the SQL server config ini to the VM
+	$copiedConfigFile = Copy-Item -Path ".\SqlServer.ini" -Destination "\\$ComputerName\c$" -PassThru
+	$sqlConfigFilePath = Join-Path -Path 'C:' -ChildPath $copiedConfigFile.Name
+
+	$isoConfig = $script:LabConfiguration.ISOs.where({$_.Name -eq 'SQL Server 2016'})
+
+	$isoPath = Join-Path -Path $script:LabConfiguration.IsoFolderPath -ChildPath $isoConfig.FileName
+	$uncIsoPath = ConvertToUncPath -LocalFilePath $isoPath -ComputerName $script:LabConfiguration.HostServer.Name
+
+	## Copy the ISO to the VM
+	Write-Verbose -Message "Copying [$($uncisoPath)] to VM..."
+	$copiedIso = Copy-Item -Path $uncIsoPath -Destination "\\$ComputerName\c$" -Force -PassThru
+
+	## Mount the ISO on the remote machine and kick off the installer
+	Write-Verbose -Message 'Beginning SQL Server installer...'
+	$isoFilePath = Join-Path 'C:\' -ChildPath $copiedIso.Name
+	InvokeVmCommand -ComputerName $ComputerName -ArgumentList $isoFilePath, $sqlConfigFilePath -ScriptBlock { 
+		$image = Mount-DiskImage -ImagePath $args[0] -PassThru
+		$installerPath = Join-Path -Path "$(($image | Get-Volume).DriveLetter):" -ChildPath 'setup.exe'
+		Start-Process -FilePath $installerPath -ArgumentList ('/CONFIGURATIONFILE={1}' -f $args[1]) -Wait -NoNewWindow
+	}
+}
+function InvokeProgram {
+	[CmdletBinding()]
+	[OutputType([System.Management.Automation.PSObject])]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$FilePath,
+
+		[Parameter()]
+		[string]$ComputerName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$ArgumentList,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[uint32[]]$SuccessReturnCodes = @(0, 3010)
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$icmParams = @{
 		ComputerName = $ComputerName
-		Command      = '{0} /CONFIGURATIONFILE={1}\SqlServer.ini' -f $script:LabConfiguration.SQLServerInstallerPath, $script:LabConfiguration.ProjectRootFolder
 	}
 
-	InvokeProgram @invokeParams
-	
+	$icmParams.ScriptBlock = {
+		try {
+			$processStartInfo = New-Object System.Diagnostics.ProcessStartInfo
+			$processStartInfo.FileName = $Using:FilePath
+			$processStartInfo.UseShellExecute = $false # This is critical for installs to function on core servers
+			$ps = New-Object System.Diagnostics.Process
+			$ps.StartInfo = $processStartInfo
+			Write-Verbose -Message "Starting process path [$($processStartInfo.FileName)] - Args: [$($processStartInfo.Arguments)] - Working dir: [$($Using:WorkingDirectory)]"
+			$null = $ps.Start()
+			$ps.WaitForExit()
+
+			# Check the exit code of the process to see if it succeeded.
+			if ($ps.ExitCode -notin $Using:SuccessReturnCodes) {
+				throw "Error running program: $($ps.ExitCode)"
+			}
+		} catch {
+			Write-Error $_.Exception.ToString()
+		}
+	}
+
+	$result = InvokeVmCommand @icmParams
+
 }
 function New-LabVm {
 	[OutputType([void])]
@@ -262,7 +326,15 @@ function New-LabVm {
 	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
 	Wait-Ping -ComputerName $name
 
+	## Adding a cached cred to copy over files to VM easily
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
+	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
+	AddCachedCredential -ComputerName $name -Credential $cred
+
 	Add-TrustedHostComputer -ComputerName $name
+
+	## Enabling CredSSP support
+	InvokeVmCommand -ComputerName $name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force }
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -292,6 +364,26 @@ function New-PSCredential {
 
 	# Create a new credential object with the specified parameters.
 	New-Object System.Management.Automation.PSCredential -ArgumentList $arguments
+}
+function AddCachedCredential {
+	[OutputType('void')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+		
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[pscredential]$Credential
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	if ((cmdkey /list:$ComputerName) -match '\* NONE \*') {
+		$null = cmdkey /add:$ComputerName /user:($Credential.UserName) /pass:($Credential.GetNetworkCredential().Password)
+	}
 }
 function TestIsIsoNameValid {
 	[OutputType([bool])]
@@ -614,14 +706,26 @@ function InvokeVmCommand {
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[scriptblock]$ScriptBlock
+		[scriptblock]$ScriptBlock,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[object[]]$ArgumentList
 	)
 
 	$ErrorActionPreference = 'Stop'
 
 	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
 	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
-	Invoke-Command -ComputerName $ComputerName -ScriptBlock $ScriptBlock -Credential $cred
+	$icmParams = @{
+		ComputerName = $ComputerName 
+		ScriptBlock  = $ScriptBlock
+		Credential   = $cred
+	}
+	if ($PSBoundParameters.ContainsKey('ArgumentList')) {
+		$icmParams.ArgumentList = $ArgumentList
+	}
+	Invoke-Command @icmParams
 
 	
 }
