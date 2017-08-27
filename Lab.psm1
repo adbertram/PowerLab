@@ -44,7 +44,7 @@ function New-ActiveDirectoryForest {
 	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
-	$vm = New-LabVm -ServerType 'Domain Controller' -PassThru
+	$vm = New-LabVm -Type 'Domain Controller' -PassThru
 
 	## Grab config values from file
 	$forestConfiguration = $script:LabConfiguration.ActiveDirectoryConfiguration
@@ -71,7 +71,7 @@ function New-SqlServer {
 	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
-	$vm = New-LabVm -ServerType 'SQL' -PassThru
+	$vm = New-LabVm -Type 'SQL' -PassThru
 	Install-SqlServer -ComputerName $vm.Name
 	
 }
@@ -84,7 +84,7 @@ function New-WebServer {
 	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
-	$vm = New-LabVm -ServerType 'Web' -PassThru
+	$vm = New-LabVm -Type 'Web' -PassThru
 	Install-IIS -ComputerName $vm.Name
 	
 }
@@ -102,6 +102,88 @@ function Install-IIS {
 
 	$null = InvokeHypervCommand -ScriptBlock { Install-WindowsFeature -Name Web-Server }
 	
+}
+function NewIISAppPool {
+	[OutputType('void')]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Name
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$scriptBlock = {
+		$null = Import-Module -Name 'WebAdministration'
+		$appPoolPath = 'IIS:\AppPools\{0}' -f $Using:Name;
+		$null = New-Item -Path $appPoolPath
+	}
+
+	Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+}
+function New-IISWebsite {
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Name,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ApplicationPool
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$scriptBlock = {
+
+		$null = Import-Module -Name 'WebAdministration'
+
+		# Check if a physical path was specified or if one should be generated from the website name.
+		# Build the full website physical path if not specified.
+		$websitePhysicalPath = "C:\inetpub\sites\{0}" -f $Using:Name
+
+		# Build the PSProvider path for the website.
+		$websitePath = "IIS:\Sites\{0}" -f $Using:Name
+
+		$appPoolPath = "IIS:\AppPools\{0}" -f $Using:ApplicationPool
+		if (-not (Test-Path -Path $appPoolPath)) {
+			throw "IIS application pool '{0}' does not exist." -f $Using:ApplicationPool
+		}
+
+		# Check if there are any existing websites. If not, we need to specify the ID, otherwise the action
+		# will fail.
+		if ((Get-ChildItem -Path IIS:\Sites).Count -eq 0) {
+			$websiteParams = @{
+				id = 1
+			}
+		}
+
+		# Create the website with the specified parameters.
+		$websiteParams += @{
+			Path     = $websitePath
+			bindings = @{
+				protocol = 'http'
+			}
+		}
+
+		$null = New-Item @websiteParams
+
+	}
+
+	Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+
 }
 function Install-SqlServer {
 	[OutputType([void])]
