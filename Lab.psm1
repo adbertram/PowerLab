@@ -230,10 +230,12 @@ function AddOperatingSystem {
 	try {
 		$templateAnswerFilePath = (GetUnattendXmlFile -OperatingSystem $OperatingSystem).FullName
 		$isoConfig = $script:LabConfiguration.ISOs.where({$_.Name -eq $OperatingSystem})
+		
+		$ipAddress = NewVmIpAddress
 		$prepParams = @{
 			Path         = $templateAnswerFilePath
 			VMName       = $vm.Name
-			IpAddress    = (NewVmIpAddress)
+			IpAddress    = $ipAddress
 			DnsServer    = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Network.DnsServer
 			ProductKey   = $isoConfig.ProductKey
 			UserName     = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Name
@@ -257,6 +259,10 @@ function AddOperatingSystem {
 			ArgumentList = $Vm.Name, $vhd.Path
 		}
 		InvokeHyperVCommand @invParams
+
+		## Add the VM to the local hosts file
+		Add-HostsFileEntry -HostName $vm.Name -IpAddress $ipAddress
+		
 	} catch {
 		$PSCmdlet.ThrowTerminatingError($_)
 	}
