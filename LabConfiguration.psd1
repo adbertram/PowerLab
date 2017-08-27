@@ -42,7 +42,7 @@
 	DefaultVirtualMachineConfiguration  = @{
 		VirtualSwitch = @{
 			Name = 'Lab'
-			Type = 'Internal'
+			Type = 'External' ## This is in order for our client to communicate with the VMs. If this is external, we'll ignore this one and use the existing one (if exists)
 		}
 		VHDConfig     = @{
 			Size           = '40GB' 
@@ -66,7 +66,7 @@
 			Password = 'p@$$w0rd12'
 		}
 		Network = @{
-			IpNetwork = '192.168.0.0'
+			IpNetwork = '192.168.0.0' ## Ensure this network does not conflict with any existing
 			DnsServer = '192.168.0.1'
 		}
 	}
@@ -97,7 +97,7 @@
     
 	## Any Lab AD-specific configuration values go here.
 	ActiveDirectoryConfiguration        = @{
-		DomainName                    = 'lab.local'
+		DomainName                    = 'mylab.local'
 		DomainMode                    = 'Win2012R2'
 		ForestMode                    = 'Win2012R2'
 		SafeModeAdministratorPassword = 'p@$$w0rd12'
