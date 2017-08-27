@@ -801,57 +801,6 @@ function PrepareUnattendXmlFile {
 
 	$tempUnattend
 }
-function Add-FileToIso {
-	[OutputType('void')]
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$IsoPath,
-
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string[]]$FilePath
-	)
-
-	$ErrorActionPreference = 'Stop'
-	
-	try {
-		## Mount the ISO
-		$mountedISO = Mount-DiskImage -ImagePath $IsoPath
-		$volume = Get-DiskImage -ImagePath $mountedISO.ImagePath | Get-Volume
-		
-		## Create the temp folder
-		$tempFolder = "$env:temp\$((New-Guid).Guid)"
-		$tempIsoPath = "$env:temp\$((New-Guid).Guid).iso"
-		$null = New-Item -Path $tempFolder -ItemType Directory
-
-		## Copy the ISO contents to the temp folder
-		$source = '{0}:\*' -f $volume.DriveLetter
-		Copy-Item -Path $source -Destination $tempFolder -Recurse -Force
-
-		## Add files to be in ISO to the temp folder
-		Copy-Item -Path $FilePath -Destination $tempFolder
-
-		## Create the new ISO
-		$bootData = '2#p0,e,b"{0}"#pEF,e,b"{1}"' -f "$PSScriptRoot\boot-dependencies\etfsboot.com", "$PSScriptRoot\boot-dependencies\efisys.bin"
-		$proc = Start-Process -FilePath "$PSScriptRoot\boot-dependencies\oscdimg.exe" -ArgumentList "-bootdata:$BootData", '-u2', '-udfver102', $tempFolder, $tempIsoPath -PassThru -Wait -NoNewWindow
-		if ($proc.ExitCode -ne 0) {
-			throw "ISO generation failed with exit code [$($proc.ExitCode)]"
-		}
-
-		## Remove the original ISO and move the temp ISO to the original's place
-		# Remove-Item -Path $IsoPath
-		# Move-Item -Path $tempIsoPath -Destination $IsoPath
-
-	} catch {
-		$PSCmdlet.ThrowTerminatingError($_)
-	} finally {
-		Dismount-DiskImage -ImagePath $IsoPath
-		Remove-Item -Path $tempFolder -ErrorAction Ignore
-	}
-}
 function Add-HostsFileEntry {
 	[CmdletBinding()]
 	param
