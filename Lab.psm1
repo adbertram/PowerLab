@@ -620,12 +620,12 @@ function GetNextLabVmName {
 	}
 
 	if (-not ($highNumberVm = Get-LabVm -Type $Type | Select -ExpandProperty Name | Sort-Object -Descending | Select-Object -First 1)) {
-		$highNum = 1
+		$nextNum = 1
 	} else {
 		[int]$highNum = [regex]::matches($highNumberVm, '(\d+)$').Groups[1].Value
+		$nextNum = $highNum + 1
 	}
-	$nextNum = $highNum + 1
-	
+
 	$baseName = $types.BaseName
 	
 	'{0}{1}' -f $baseName, $nextNum
