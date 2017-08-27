@@ -115,12 +115,19 @@
 			xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 			<Interfaces>
 				<Interface wcm:action="add">
-					<Identifier>Local Area Network</Identifier>
 					<Ipv4Settings>
 						<DhcpEnabled>false</DhcpEnabled>
+						<Metric>20</Metric>
+						<RouterDiscoveryEnabled>false</RouterDiscoveryEnabled>
 					</Ipv4Settings>
+					<Ipv6Settings>
+						<DhcpEnabled>false</DhcpEnabled>
+						<Metric>30</Metric>
+						<RouterDiscoveryEnabled>true</RouterDiscoveryEnabled>
+					</Ipv6Settings>
+					<Identifier>Ethernet</Identifier>
 					<UnicastIpAddresses>
-						<IpAddress wcm:action="add" wcm:keyValue="1">XXX.XXX.XXX.XXX/24</IpAddress>
+						<IpAddress wcm:action="add" wcm:keyValue="1">XXXXXX</IpAddress>
 					</UnicastIpAddresses>
 				</Interface>
 			</Interfaces>
@@ -130,12 +137,13 @@
 			xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 			<Interfaces>
 				<Interface wcm:action="add">
-					<DNSServerSearchOrder>
-						<IpAddress wcm:action="add" wcm:keyValue="1">XXX.XXX.XXX.XXX</IpAddress>
-					</DNSServerSearchOrder>
+					<Identifier>Ethernet</Identifier>
 					<DNSDomain>mylab.local</DNSDomain>
+					<DNSServerSearchOrder>
+						<IpAddress wcm:action="add" wcm:keyValue="1">XXXXXXX</IpAddress>
+					</DNSServerSearchOrder>
+					<EnableAdapterDomainNameRegistration>true</EnableAdapterDomainNameRegistration>
 					<DisableDynamicUpdate>false</DisableDynamicUpdate>
-					<Identifier>Local Area Network</Identifier>
 				</Interface>
 			</Interfaces>
 			<DNSDomain>mylab.local</DNSDomain>
