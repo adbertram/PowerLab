@@ -219,15 +219,19 @@ function Install-SqlServer {
 
 	## Copy the ISO to the VM
 	Write-Verbose -Message "Copying [$($uncisoPath)] to VM..."
-	$copiedIso = Copy-Item -Path $uncIsoPath -Destination "\\$ComputerName\c$" -Force -PassThru
+	# $copiedIso = Copy-Item -Path $uncIsoPath -Destination "\\$ComputerName\c$" -Force -PassThru
 
 	## Mount the ISO on the remote machine and kick off the installer
 	Write-Verbose -Message 'Beginning SQL Server installer...'
-	$isoFilePath = Join-Path 'C:\' -ChildPath $copiedIso.Name
+	# $isoFilePath = Join-Path 'C:\' -ChildPath $copiedIso.Name
+	$isoFilePath = Join-Path 'C:\' -ChildPath 'en_sql_server_2016_standard_x64_dvd_8701871.iso'
 	InvokeVmCommand -ComputerName $ComputerName -ArgumentList $isoFilePath, $sqlConfigFilePath -ScriptBlock { 
 		$image = Mount-DiskImage -ImagePath $args[0] -PassThru
 		$installerPath = Join-Path -Path "$(($image | Get-Volume).DriveLetter):" -ChildPath 'setup.exe'
-		Start-Process -FilePath $installerPath -ArgumentList ('/CONFIGURATIONFILE={1}' -f $args[1]) -Wait -NoNewWindow
+		$installResult = Start-Process -FilePath $installerPath -ArgumentList "/CONFIGURATIONFILE=$($args[1])" -Wait -NoNewWindow -PassThru
+		if ($installResult.ExitCode -ne 0) {
+			throw "SQL Serer install failed with exit code $($installResult.ExitCode)"
+		}
 	}
 }
 function InvokeProgram {
@@ -449,6 +453,7 @@ function AddOperatingSystem {
 			ProductKey   = $isoConfig.ProductKey
 			UserName     = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Name
 			UserPassword = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Password
+			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
 		}
 		$answerFile = PrepareUnattendXmlFile @prepParams
 
@@ -935,6 +940,10 @@ function PrepareUnattendXmlFile {
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
+		[string]$DomainName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
 		[string]$ProductKey,
 
 		[Parameter()]
@@ -979,6 +988,9 @@ function PrepareUnattendXmlFile {
 	# Insert the NIC configuration
 	$xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$IpAddress/24"
 	$xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
+
+	## Set the domain names
+	$xUnattend.SelectSingleNode('//ns:DnsDomain', $ns) | foreach { $_.InnerText = $DomainName }
 
 	## Save the config back to the XML file
 	$xUnattend.Save($tempUnattend.FullName)
