@@ -66,8 +66,8 @@
 			Password = 'p@$$w0rd12'
 		}
 		Network = @{
-			IpNetwork = '192.168.10.0'
-			DnsServer = '192.168.10.1'
+			IpNetwork = '192.168.0.0'
+			DnsServer = '192.168.0.1'
 		}
 	}
 
