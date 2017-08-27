@@ -161,6 +161,13 @@
 				<Enabled>true</Enabled>
 				<Username></Username>
 			</AutoLogon>
+			<FirstLogonCommands>
+				<SynchronousCommand wcm:action="add">
+					<CommandLine>%SystemRoot%\System32\netsh.exe advfirewall set allprofiles state off</CommandLine>
+					<Order>1</Order>
+					<Description>Disable Windows Firewall</Description>
+				</SynchronousCommand>
+			</FirstLogonCommands>
 			<OOBE>
 				<HideEULAPage>true</HideEULAPage>
 				<HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
