@@ -100,7 +100,11 @@ function Install-IIS {
 
 	$ErrorActionPreference = 'Stop'
 
-	$null = InvokeHypervCommand -ScriptBlock { Install-WindowsFeature -Name Web-Server }
+	$null = InvokeVmCommand -ComputerName $ComputerName -ScriptBlock { Install-WindowsFeature -Name Web-Server }
+
+	$webConfig = $script:LabConfiguration.DefaultServerConfiguration.Web
+	NewIISAppPool -ComputerName $ComputerName -Name $webConfig.ApplicationPoolName
+	NewIISWebsite -ComputerName $ComputerName -Name $webConfig.WebsiteName -ApplicationPool $webConfig.ApplicationPoolName
 	
 }
 function NewIISAppPool {
@@ -122,12 +126,14 @@ function NewIISAppPool {
 	$scriptBlock = {
 		$null = Import-Module -Name 'WebAdministration'
 		$appPoolPath = 'IIS:\AppPools\{0}' -f $Using:Name;
-		$null = New-Item -Path $appPoolPath
+		if (-not (Test-Path -Path $appPoolPath)) {
+			$null = New-Item -Path $appPoolPath -Force
+		}
 	}
 
-	Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+	InvokeVmCommand -ComputerName $ComputerName -ScriptBlock $scriptBlock
 }
-function New-IISWebsite {
+function NewIISWebsite {
 	[CmdletBinding()]
 	param
 	(
@@ -156,33 +162,36 @@ function New-IISWebsite {
 
 		# Build the PSProvider path for the website.
 		$websitePath = "IIS:\Sites\{0}" -f $Using:Name
-
-		$appPoolPath = "IIS:\AppPools\{0}" -f $Using:ApplicationPool
-		if (-not (Test-Path -Path $appPoolPath)) {
-			throw "IIS application pool '{0}' does not exist." -f $Using:ApplicationPool
-		}
-
-		# Check if there are any existing websites. If not, we need to specify the ID, otherwise the action
-		# will fail.
-		if ((Get-ChildItem -Path IIS:\Sites).Count -eq 0) {
-			$websiteParams = @{
-				id = 1
+		if (-not (Test-Path -Path $webSitePath)) {
+			$appPoolPath = "IIS:\AppPools\{0}" -f $Using:ApplicationPool
+			if (-not (Test-Path -Path $appPoolPath)) {
+				throw "IIS application pool '{0}' does not exist." -f $Using:ApplicationPool
 			}
-		}
 
-		# Create the website with the specified parameters.
-		$websiteParams += @{
-			Path     = $websitePath
-			bindings = @{
-				protocol = 'http'
+			# Check if there are any existing websites. If not, we need to specify the ID, otherwise the action
+			# will fail.
+			if ((Get-ChildItem -Path IIS:\Sites).Count -eq 0) {
+				$websiteParams = @{
+					id = 1
+				}
 			}
-		}
 
-		$null = New-Item @websiteParams
+			# Create the website with the specified parameters.
+			$websiteParams += @{
+				Path     = $websitePath
+				bindings = @{
+					protocol           = 'http'
+					physicalPath       = $websitePhysicalPath
+					bindingInformation = "*:80:$using:Name"
+				}
+			}
+
+			$null = New-Item @websiteParams
+		}
 
 	}
 
-	Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+	InvokeVmCommand -ComputerName $ComputerName -ScriptBlock $scriptBlock
 
 }
 function Install-SqlServer {
@@ -252,11 +261,37 @@ function New-LabVm {
 
 	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
 	Wait-Ping -ComputerName $name
+
+	Add-TrustedHostComputer -ComputerName $name
 	
 	if ($PassThru.IsPresent) {
 		$vm
 	}
 	
+}
+function New-PSCredential {
+	[CmdletBinding()]
+	[OutputType([System.Management.Automation.PSCredential])]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$UserName,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Password
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	#region Build arguments
+	$arguments = @($UserName)
+	$arguments += ConvertTo-SecureString -String $Password -AsPlainText -Force
+	#endregion Build arguments
+
+	# Create a new credential object with the specified parameters.
+	New-Object System.Management.Automation.PSCredential -ArgumentList $arguments
 }
 function TestIsIsoNameValid {
 	[OutputType([bool])]
@@ -569,6 +604,27 @@ function Get-LabVm {
 		}
 	}
 }
+function InvokeVmCommand {
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[scriptblock]$ScriptBlock
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
+	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
+	Invoke-Command -ComputerName $ComputerName -ScriptBlock $ScriptBlock -Credential $cred
+
+	
+}
 function InvokeHyperVCommand {
 	[CmdletBinding(SupportsShouldProcess)]
 	param
@@ -711,6 +767,30 @@ function GetNextLabVmName {
 	$baseName = $types.BaseName
 	
 	'{0}{1}' -f $baseName, $nextNum
+}
+function Add-TrustedHostComputer {
+	[CmdletBinding()]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$ComputerName
+			
+	)
+	try {
+		foreach ($c in $ComputerName) {
+			Write-Verbose -Message "Adding [$($c)] to client WSMAN trusted hosts"
+			$TrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
+			if (-not $TrustedHosts) {
+				Set-Item -Path wsman:\localhost\Client\TrustedHosts -Value $c -Force
+			} elseif (($TrustedHosts -split ',') -notcontains $c) {
+				$TrustedHosts = ($TrustedHosts -split ',') + $c
+				Set-Item -Path wsman:\localhost\Client\TrustedHosts -Value ($TrustedHosts -join ',') -Force
+			}
+		}
+	} catch {
+		Write-Error $_.Exception.Message
+	}
 }
 function GetUnattendXmlFile {
 	[OutputType('System.IO.FileInfo')]
