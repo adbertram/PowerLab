@@ -15,7 +15,9 @@ function New-Lab {
 		[ValidateNotNullOrEmpty()]
 		[switch]$WinRmCopy
 	)
-	try {		
+	$ErrorActionPreference = 'Stop'
+
+	try {
 		## Create the switch
 		NewLabSwitch
 
@@ -38,6 +40,8 @@ function New-ActiveDirectoryForest {
 	(
 		
 	)
+
+	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
 	$vm = New-LabVm -ServerType 'Domain Controller' -PassThru
@@ -64,6 +68,8 @@ function New-SqlServer {
 	param
 	()
 
+	$ErrorActionPreference = 'Stop'
+
 	## Build the VM
 	$vm = New-LabVm -ServerType 'SQL' -PassThru
 	Install-SqlServer -ComputerName $vm.Name
@@ -74,6 +80,8 @@ function New-WebServer {
 	[CmdletBinding(SupportsShouldProcess)]
 	param
 	()
+
+	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
 	$vm = New-LabVm -ServerType 'Web' -PassThru
@@ -90,6 +98,8 @@ function Install-IIS {
 		[string]$ComputerName
 	)
 
+	$ErrorActionPreference = 'Stop'
+
 	$null = InvokeHypervCommand -ScriptBlock { Install-WindowsFeature -Name Web-Server }
 	
 }
@@ -102,6 +112,7 @@ function Install-SqlServer {
 		[ValidateNotNullOrEmpty()]
 		[string]$ComputerName
 	)
+	$ErrorActionPreference = 'Stop'
 
 	$uncProjectFolder = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
 	$copiedConfigFile = Copy-Item -Path "$PSScriptRoot\SqlServer.ini" -Destination $uncProjectFolder -PassThru
@@ -129,6 +140,8 @@ function New-LabVm {
 		[switch]$PassThru
 	)
 
+	$ErrorActionPreference = 'Stop'
+
 	$name = GetNextLabVmName -Type $Type
 
 	## Create the VM
@@ -154,6 +167,9 @@ function New-LabVm {
 	## Create the VHD and install Windows on the VM
 	$os = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}).OS
 	AddOperatingSystem -Vm $vm -OperatingSystem $os
+
+	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
+	Wait-Ping -ComputerName $name
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -210,6 +226,7 @@ function AddOperatingSystem {
 	)
 
 	$ErrorActionPreference = 'Stop'
+
 	try {
 		$templateAnswerFilePath = (GetUnattendXmlFile -OperatingSystem $OperatingSystem).FullName
 		$isoConfig = $script:LabConfiguration.ISOs.where({$_.Name -eq $OperatingSystem})
@@ -285,40 +302,40 @@ function ConvertToVirtualDisk {
 		[string]$VHDPartitionStyle = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.PartitionStyle
 		
 	)
-	process {
-		$ErrorActionPreference = 'Stop'
 
-		$projectRootUnc = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
-		Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $projectRootUnc -Force
-		
-		## Copy the answer file to the Hyper-V host
-		Copy-Item -Path $AnswerFilePath -Destination $projectRootUnc -Force
-		$localTempAnswerFilePath = $projectrootunc -replace '.*(\w)\$', '$1:'
-		
-		$sb = {
-			. $args[0]
-			$convertParams = @{
-				SourcePath        = $args[1]
-				SizeBytes         = $args[2]
-				Edition           = $args[3]
-				VHDFormat         = $args[4]
-				VHDPath           = $args[5]
-				VHDType           = $args[6]
-				VHDPartitionStyle = $args[7]
-			}
-			if ($args[8]) {
-				$convertParams.UnattendPath = $args[8]
-			}
-			Convert-WindowsImage @convertParams
-			Get-Vhd -Path $args[5]
-		}
+	$ErrorActionPreference = 'Stop'
 
-		$icmParams = @{
-			ScriptBlock  = $sb
-			ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChildPath 'Convert-WindowsImage.ps1'), $IsoFilePath, $SizeBytes, $Edition, $VhdFormat, $VhdPath, $Sizing, $VHDPartitionStyle, $localTempAnswerFilePath
+	$projectRootUnc = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
+	Copy-Item -Path "$PSScriptRoot\Convert-WindowsImage.ps1" -Destination $projectRootUnc -Force
+		
+	## Copy the answer file to the Hyper-V host
+	$answerFileName = $AnswerFilePath | Split-Path -Leaf
+	Copy-Item -Path $AnswerFilePath -Destination $projectRootUnc -Force
+	$localTempAnswerFilePath = Join-Path -Path ($projectrootunc -replace '.*(\w)\$', '$1:') -ChildPath $answerFileName
+		
+	$sb = {
+		. $args[0]
+		$convertParams = @{
+			SourcePath        = $args[1]
+			SizeBytes         = $args[2]
+			Edition           = $args[3]
+			VHDFormat         = $args[4]
+			VHDPath           = $args[5]
+			VHDType           = $args[6]
+			VHDPartitionStyle = $args[7]
 		}
-		InvokeHyperVCommand @icmParams
+		if ($args[8]) {
+			$convertParams.UnattendPath = $args[8]
+		}
+		Convert-WindowsImage @convertParams
+		Get-Vhd -Path $args[5]
 	}
+
+	$icmParams = @{
+		ScriptBlock  = $sb
+		ArgumentList = (Join-Path -Path $script:LabConfiguration.ProjectRootFolder -ChildPath 'Convert-WindowsImage.ps1'), $IsoFilePath, $SizeBytes, $Edition, $VhdFormat, $VhdPath, $Sizing, $VHDPartitionStyle, $localTempAnswerFilePath
+	}
+	InvokeHyperVCommand @icmParams
 }
 function NewLabVhd {
 	[CmdletBinding(DefaultParameterSetName = 'None')]
@@ -576,93 +593,6 @@ function GetNextLabVmName {
 	
 	'{0}{1}' -f $baseName, $nextNum
 }
-function Test-Lab {
-	[OutputType('bool')]
-	[CmdletBinding(SupportsShouldProcess)]
-	param
-	(
-		
-	)
-
-	$ErrorActionPreference = 'Stop'
-
-	$uncProjectRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
-	$isoRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.IsoFolderPath -ComputerName $script:LabConfiguration.HostServer.Name
-	$vhdRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
-	$vmRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
-
-	$rules = @(
-		@{
-			Test        = { Test-Connection -ComputerName $script:LabConfiguration.HostServer.Name -Quiet -Count 1 }
-			FailMessage = 'They Hyper-V server could not be contacted.'
-		}
-		@{
-			Test        = { Test-Path -Path $uncProjectRoot -PathType Container }
-			FailMessage = 'The ProjecRootFolder in Lab Configuration could not be found.'
-		}
-		@{
-			Test        = { Test-Path -Path $isoRoot -PathType Container }
-			FailMessage = 'The IsoFolderPath in Lab Configuration could not be found.'
-		}
-		@{
-			Test        = { Test-Path -Path $vhdRoot -PathType Container }
-			FailMessage = 'The default VHD path in Lab Configuration could not be found.'
-		}
-		@{
-			Test        = { Test-Path -Path $vmRoot -PathType Container }
-			FailMessage = 'The default VM path in Lab Configuration could not be found.'
-		}
-		@{
-			Test        = { 
-				if ($failures = @($script:LabConfiguration.ISOs).where({ -not (Test-Path -Path "$isoRoot\$($_.FileName)" -PathType Leaf)})) {
-					$false
-				} else {
-					$true
-				}
-			}
-			FailMessage = 'One or more ISOs specified in the ISOs section of Lab Configuration could not be found.'
-		}
-		@{
-			Test        = { 
-				$validNames = $script:LabConfiguration.ISOs.where({ $_.Type -eq 'OS'}).Name
-				$xmlFiles = Get-ChildItem "$PSScriptRoot\AutoUnattend" -Filter '*.xml' -File
-				$validxmlFiles = $xmlFiles | Where-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -in $validNames }
-				if (@($validNames).Count -ne @($validXmlFiles).Count) {
-					$false
-				} else {
-					$true
-				}
-
-			}
-			FailMessage = 'One or more operating systems do not have a unattend.xml file in the AutoAttend folder.'
-		}
-		@{
-			Test        = { 
-				$validOses = $script:LabConfiguration.ISOs.where({ $_.Type -eq 'OS'}).Name
-				$vmOsesDefined = $script:LabConfiguration.VirtualMachines.OS
-				if ($vmOsesDefined.where({ $_ -notin $validOses})) {
-					$false
-				} else {
-					$true
-				}
-
-			}
-			FailMessage = 'One or more virtual machines in the VirtualMachines section of lab configuration do not have a corresponding ISO available.'
-		}
-	)
-
-	try {
-		foreach ($rule in $rules) {
-			if (-not (& $rule.Test)) {
-				throw $rule.FailMessage
-			}
-		}
-		$true
-	} catch {
-		$PSCmdlet.ThrowTerminatingError($_)
-	}
-	
-}
 function GetUnattendXmlFile {
 	[OutputType('System.IO.FileInfo')]
 	[CmdletBinding()]
@@ -743,16 +673,15 @@ function PrepareUnattendXmlFile {
 	## Insert the host name
 	$xUnattend.SelectSingleNode('//ns:ComputerName', $ns).InnerText = $VMName
 
-	## Insert the NIC configuration
-	# $xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$IpAddress/24"
-	# $xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
+	# Insert the NIC configuration
+	$xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$IpAddress/24"
+	$xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
 
 	## Save the config back to the XML file
 	$xUnattend.Save($tempUnattend.FullName)
 
 	$tempUnattend
 }
-
 function Add-FileToIso {
 	[OutputType('void')]
 	[CmdletBinding()]
@@ -804,7 +733,6 @@ function Add-FileToIso {
 		Remove-Item -Path $tempFolder -ErrorAction Ignore
 	}
 }
-
 function Add-HostsFileEntry {
 	[CmdletBinding()]
 	param
@@ -895,7 +823,6 @@ function Add-HostsFileEntry {
 		}
 	}
 }
-
 function Get-HostsFileEntry {
 	[CmdletBinding()]
 	[OutputType([System.Management.Automation.PSCustomObject])]
@@ -957,7 +884,6 @@ function Get-HostsFileEntry {
 		}
 	}
 }
-
 function Remove-HostsFileEntry {
 	[CmdletBinding()]
 	param
@@ -994,7 +920,6 @@ function Remove-HostsFileEntry {
 		}
 	}
 }
-
 function Set-HostsFileEntry {
 	[CmdletBinding()]
 	param
@@ -1009,6 +934,54 @@ function Set-HostsFileEntry {
 				
 		} catch {
 			Write-Error $_.Exception.Message
+		}
+	}
+}
+function Wait-Ping {
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$Offline,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateRange(1, [Int64]::MaxValue)]
+		[int]$Timeout = 1500
+	)
+
+	$ErrorActionPreference = 'Stop'
+	try {
+		$timer = [Diagnostics.Stopwatch]::StartNew()
+		if ($Offline.IsPresent) {
+			while ((ping $ComputerName -n 2) -match 'Lost = 0') {
+				Write-Verbose -Message "Waiting for [$($ComputerName)] to go offline..."
+				if ($timer.Elapsed.TotalSeconds -ge $Timeout) {
+					throw "Timeout exceeded. Giving up on [$ComputerName] going offline";
+				}
+				Start-Sleep -Seconds 10;
+			}
+		} else {
+			## Using good ol' fashioned ping.exe because it just uses ICMP. Test-Connection uses CIM and NetworkInformation.Ping sometimes hangs
+			while (-not ((ping $ComputerName -n 2) -match 'Lost = 0')) {
+				Write-Verbose -Message "Waiting for [$($ComputerName)] to become pingable..."
+				if ($timer.Elapsed.TotalSeconds -ge $Timeout) {
+					throw "Timeout exceeded. Giving up on ping availability to [$ComputerName]";
+				}
+				Start-Sleep -Seconds 10;
+			}
+			Write-Log -Source $MyInvocation.MyCommand -Message "Ping is now available on [$($ComputerName)]. We waited $([Math]::Round($timer.Elapsed.TotalSeconds, 0)) seconds";
+		}
+	} catch {
+		$PSCmdlet.ThrowTerminatingError($_)
+	} finally {
+		if (Test-Path -Path Variable:\Timer) {
+			$timer.Stop();
 		}
 	}
 }
