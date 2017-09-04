@@ -77,7 +77,13 @@
 			WebSiteName         = 'AutomateBoringStuff'
 		}
 		SQL = @{
-			
+			SystemAdministratorAccount = @{
+				Name = 'LabUser'
+			}
+			ServiceAccount             = @{
+				Name     = 'LabUser'
+				Password = 'p@$$w0rd12'
+			}
 		}
 	}
 
