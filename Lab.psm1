@@ -209,8 +209,8 @@ function Install-SqlServer {
 	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 
 	## Copy the SQL server config ini to the VM
-	$copiedConfigFile = Copy-Item -Path ".\SqlServer.ini" -Destination "\\$ComputerName\c$" -PassThru
-	$sqlConfigFilePath = Join-Path -Path 'C:' -ChildPath $copiedConfigFile.Name
+	$copiedConfigFile = Copy-Item -Path "$PSscriptRoot\SqlServer.ini" -Destination "\\$ComputerName\c$" -PassThru
+	$sqlConfigFilePath = $copiedConfigFile.FullName.Replace("\\$ComputerName\c$\", 'C:\')
 
 	$isoConfig = $script:LabConfiguration.ISOs.where({$_.Name -eq 'SQL Server 2016'})
 
@@ -218,21 +218,25 @@ function Install-SqlServer {
 	$uncIsoPath = ConvertToUncPath -LocalFilePath $isoPath -ComputerName $script:LabConfiguration.HostServer.Name
 
 	## Copy the ISO to the VM
-	Write-Verbose -Message "Copying [$($uncisoPath)] to VM..."
-	# $copiedIso = Copy-Item -Path $uncIsoPath -Destination "\\$ComputerName\c$" -Force -PassThru
-
-	## Mount the ISO on the remote machine and kick off the installer
-	Write-Verbose -Message 'Beginning SQL Server installer...'
-	# $isoFilePath = Join-Path 'C:\' -ChildPath $copiedIso.Name
-	$isoFilePath = Join-Path 'C:\' -ChildPath 'en_sql_server_2016_standard_x64_dvd_8701871.iso'
-	InvokeVmCommand -ComputerName $ComputerName -ArgumentList $isoFilePath, $sqlConfigFilePath -ScriptBlock { 
-		$image = Mount-DiskImage -ImagePath $args[0] -PassThru
-		$installerPath = Join-Path -Path "$(($image | Get-Volume).DriveLetter):" -ChildPath 'setup.exe'
-		$installResult = Start-Process -FilePath $installerPath -ArgumentList "/CONFIGURATIONFILE=$($args[1])" -Wait -NoNewWindow -PassThru
-		if ($installResult.ExitCode -ne 0) {
-			throw "SQL Serer install failed with exit code $($installResult.ExitCode)"
-		}
+	if (-not (Test-Path -Path $uncIsoPath -PathType Leaf)) {
+		Write-Verbose -Message "Copying [$($uncisoPath)] to VM..."
+		$copiedIso = Copy-Item -Path $uncIsoPath -Destination "\\$ComputerName\c$" -Force -PassThru
 	}
+	
+	## Extract the ISO on the remote VM
+	$isoFilePath = 'C:\en_sql_server_2016_standard_x64_dvd_8701871.iso'
+	$installDir = InvokeVmCommand -ComputerName $ComputerName -ArgumentList $isoFilePath -ScriptBlock { 
+		$image = Mount-DiskImage -ImagePath $args[0] -PassThru
+		$imageDrive = "$(($image | Get-Volume).DriveLetter):"
+		$tempDir = New-Item -Path "$env:Temp\$((New-Guid).Guid)" -ItemType Directory -ErrorAction Ignore
+		Copy-Item -Path $imageDrive -Destination $tempDir.FullName -Recurse
+		$image | Dismount-DiskImage
+		$tempDir.FullName
+	}
+
+	## Execute the installer
+	InvokeProgram -FilePath "$installDir\setup.exe" -ComputerName $ComputerName -ArgumentList "/CONFIGURATIONFILE=$sqlConfigFilePath"
+
 }
 function InvokeProgram {
 	[CmdletBinding()]
@@ -990,7 +994,7 @@ function PrepareUnattendXmlFile {
 	$xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
 
 	## Set the domain names
-	$xUnattend.SelectSingleNode('//ns:DnsDomain', $ns) | foreach { $_.InnerText = $DomainName }
+	$xUnattend.SelectSingleNode('//ns:DNSDomain', $ns) | foreach { $_.InnerText = $DomainName }
 
 	## Save the config back to the XML file
 	$xUnattend.Save($tempUnattend.FullName)
