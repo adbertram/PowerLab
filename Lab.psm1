@@ -54,10 +54,16 @@ function New-ActiveDirectoryForest {
 		ForestMode                    = $forestConfiguration.ForestMode
 		Confirm                       = $false
 		SafeModeAdministratorPassword = (ConvertTo-SecureString -AsPlainText $forestConfiguration.SafeModeAdministratorPassword -Force)
+		WarningAction                 = 'Ignore'
 	}
 	
 	## Build the forest
-	Install-ADDSForest @forestParams
+	InvokeVmCommand -ArgumentList $forestParams -ComputerName $vm.Name -ScriptBlock { 
+		param($forestParams)
+		$null = Install-windowsfeature -Name AD-Domain-Services -IncludeManagementTools
+		Install-ADDSForest @forestParams
+	}
+	
 
 	# Install-ADDSDomainController -DomainName test.local -Confirm:$false -InstallDns -SafeModeAdministratorPassword (ConvertTo-SecureString -AsPlainText "p@ssw0rd" -Force)
 	
@@ -314,7 +320,7 @@ function New-LabVm {
 
 	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
 
-	Start-Sleep -Seconds 5
+	Start-Sleep -Seconds 10
 	Wait-Ping -ComputerName $name
 
 	## Adding a cached cred to copy over files to VM easily
@@ -422,8 +428,11 @@ function AddOperatingSystem {
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
 		[ValidateScript({ TestIsOsNameValid $_ })]
-		[string]$OperatingSystem
-		
+		[string]$OperatingSystem,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$VmType
 	)
 
 	$ErrorActionPreference = 'Stop'
@@ -442,6 +451,9 @@ function AddOperatingSystem {
 			UserName     = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Name
 			UserPassword = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Password
 			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
+		}
+		if ($PSBoundParameters.ContainsKey('VmType')) {
+			$prepParams.VmType = $VmType
 		}
 		$answerFile = PrepareUnattendXmlFile @prepParams
 
@@ -941,7 +953,11 @@ function PrepareUnattendXmlFile {
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$UserPassword
+		[string]$UserPassword,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$VmType
 	)
 
 	$ErrorActionPreference = 'Stop'
@@ -954,6 +970,16 @@ function PrepareUnattendXmlFile {
 	$xUnattend = ([xml]$unattendText)
 	$ns = New-Object System.Xml.XmlNamespaceManager($xunattend.NameTable)
 	$ns.AddNamespace('ns', $xUnattend.DocumentElement.NamespaceURI)
+
+	if ($VmType -eq 'Domain Controller') {
+		$dnsIp = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Network.DnsServer
+		$xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$dnsIp/24"
+		$xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $dnsIp
+	} else {
+		# Insert the NIC configuration
+		$xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$IpAddress/24"
+		$xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
+	}
 
 	## Insert the correct product key
 	$xUnattend.SelectSingleNode('//ns:ProductKey', $ns).InnerText = $ProductKey
@@ -974,9 +1000,7 @@ function PrepareUnattendXmlFile {
 	## Insert the host name
 	$xUnattend.SelectSingleNode('//ns:ComputerName', $ns).InnerText = $VMName
 
-	# Insert the NIC configuration
-	$xUnattend.SelectSingleNode('//ns:Interface/ns:UnicastIpAddresses/ns:IpAddress', $ns).InnerText = "$IpAddress/24"
-	$xUnattend.SelectSingleNode('//ns:DNSServerSearchOrder/ns:IpAddress', $ns).InnerText = $DnsServer
+	
 
 	## Set the domain names
 	$xUnattend.SelectSingleNode('//ns:DNSDomain', $ns) | foreach { $_.InnerText = $DomainName }

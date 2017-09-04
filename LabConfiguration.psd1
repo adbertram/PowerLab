@@ -63,11 +63,11 @@
 	DefaultOperatingSystemConfiguration = @{
 		User    = @{
 			Name     = 'LabUser'
-			Password = 'p@$$w0rd12'
+			Password = 'P@$$w0rd12'
 		}
 		Network = @{
 			IpNetwork = '192.168.0.0' ## Ensure this network does not conflict with any existing
-			DnsServer = '192.168.0.1'
+			DnsServer = '192.168.0.100' ## This will also be the IP of the domain controller (if deployed)
 		}
 	}
 
@@ -82,7 +82,7 @@
 			}
 			ServiceAccount             = @{
 				Name     = 'LabUser'
-				Password = 'p@$$w0rd12'
+				Password = 'P@$$w0rd12'
 			}
 		}
 	}
@@ -116,6 +116,6 @@
 		DomainName                    = 'mylab.local'
 		DomainMode                    = 'Win2012R2'
 		ForestMode                    = 'Win2012R2'
-		SafeModeAdministratorPassword = 'p@$$w0rd12'
+		SafeModeAdministratorPassword = 'P@$$w0rd12'
 	}
 }
