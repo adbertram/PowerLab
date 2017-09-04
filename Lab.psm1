@@ -218,9 +218,10 @@ function Install-SqlServer {
 	$uncIsoPath = ConvertToUncPath -LocalFilePath $isoPath -ComputerName $script:LabConfiguration.HostServer.Name
 
 	## Copy the ISO to the VM
-	if (-not (Test-Path -Path $uncIsoPath -PathType Leaf)) {
-		Write-Verbose -Message "Copying [$($uncisoPath)] to VM..."
-		$copiedIso = Copy-Item -Path $uncIsoPath -Destination "\\$ComputerName\c$" -Force -PassThru
+	$destIsoPath = '\\{0}\c$\{1}' -f $ComputerName, $isoConfig.FileName
+	if (-not (Test-Path -Path $destIsoPath -PathType Leaf)) {
+		Write-Verbose -Message "Copying [$($destisoPath)] to VM..."
+		$copiedIso = Copy-Item -Path $uncIsoPath -Destination $destIsoPath -Force -PassThru
 	}
 	
 	## Extract the ISO on the remote VM
@@ -229,7 +230,7 @@ function Install-SqlServer {
 		$image = Mount-DiskImage -ImagePath $args[0] -PassThru
 		$imageDrive = "$(($image | Get-Volume).DriveLetter):"
 		$tempDir = New-Item -Path "$env:Temp\$((New-Guid).Guid)" -ItemType Directory -ErrorAction Ignore
-		Copy-Item -Path $imageDrive -Destination $tempDir.FullName -Recurse
+		Copy-Item -Path "$imageDrive\*" -Destination $tempDir.FullName -Recurse
 		$image | Dismount-DiskImage
 		$tempDir.FullName
 	}
@@ -272,7 +273,7 @@ function InvokeProgram {
 			$processStartInfo.UseShellExecute = $false # This is critical for installs to function on core servers
 			$ps = New-Object System.Diagnostics.Process
 			$ps.StartInfo = $processStartInfo
-			Write-Verbose -Message "Starting process path [$($processStartInfo.FileName)] - Args: [$($processStartInfo.Arguments)] - Working dir: [$($Using:WorkingDirectory)]"
+			Write-Verbose -Message "Starting process path [$($processStartInfo.FileName)] - Args: [$($processStartInfo.Arguments)]"
 			$null = $ps.Start()
 			$ps.WaitForExit()
 
