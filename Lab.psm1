@@ -37,9 +37,7 @@ function New-ActiveDirectoryForest {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
-	(
-		
-	)
+	()
 
 	$ErrorActionPreference = 'Stop'
 
@@ -63,6 +61,12 @@ function New-ActiveDirectoryForest {
 		$null = Install-windowsfeature -Name AD-Domain-Services -IncludeManagementTools
 		$null = Install-ADDSForest @forestParams
 	}
+
+	## Replace the workgroup cred with the new domain cred
+	RemoveCachedCredential -TargetName $vm.Name
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+	$cred = New-PSCredential -UserName "$($forestConfiguration.DomainName)\$($credConfig.name)" -Password $credConfig.Password
+	AddCachedCredential -ComputerName $vm.Name -Credential $cred
 }
 
 function New-SqlServer {
@@ -379,6 +383,33 @@ function AddCachedCredential {
 	if ((cmdkey /list:$ComputerName) -match '\* NONE \*') {
 		$null = cmdkey /add:$ComputerName /user:($Credential.UserName) /pass:($Credential.GetNetworkCredential().Password)
 	}
+}
+function RemoveCachedCredential {
+	[OutputType([void])]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$TargetName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$ComputerName
+	)
+
+	if (-not $PSBoundParameters.ContainsKey('ComputerName')) {
+		$null = cmdkey /delete:$TargetName
+	} else {
+		foreach ($c in $ComputerName) {
+			$invParams = @{
+				ComputerName = $c
+				Command      = "cmdkey /delete:$TargetName"
+			}
+			$null = Invoke-PsExec @invParams
+		}
+	}
+	
 }
 function TestIsIsoNameValid {
 	[OutputType([bool])]
