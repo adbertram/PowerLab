@@ -34,6 +34,50 @@ function New-Lab {
 		Write-Error  "$($_.Exception.Message) - Line Number: $($_.InvocationInfo.ScriptLineNumber)"
 	}
 }
+function Remove-Lab {
+	[OutputType('void')]
+	[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+	param
+	()
+
+	$ErrorActionPreference = 'Stop'
+
+	## Remove all VMs
+	$icmParams = @{
+		ComputerName = $script:LabConfiguration.HostServer.Name
+	}
+	$nameMatch = $script:LabConfiguration.VirtualMachines.BaseName -join '|'
+	if ($vms = Invoke-Command @icmParams -ScriptBlock { Get-Vm | where { $_.Name -match $using:nameMatch }}) {
+	
+		Invoke-Command @icmParams -ScriptBlock { Stop-Vm -Name $using:vms.Name -Force; Remove-Vm -Name $using:vms.Name }
+	}
+
+	## Remove all VHDs
+	$vhdPath = ConvertToUncPath -LocalFilePath $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig.Path -ComputerName $script:LabConfiguration.HostServer.Name
+	if ($vhds = Get-ChildItem -Path $vhdPath) {
+		if ($PSCmdlet.ShouldProcess("VHDs: [$($vhds.Name -join ',')]", 'Remove')) {
+			$vhds | Remove-Item
+		}
+	}
+
+	## Remove all trusted hosts
+	$trustedHostString = (Get-ChildItem -Path WSMan:\localhost\Client\TrustedHosts).Value
+	$trustedHosts = $trustedHostString -split ','
+	$nonLabTrustedHosts = $trustedHosts | where { $_ -notmatch $nameMatch }
+	if ($labTrustedHosts = $trustedHosts | where { $_ -match $nameMatch }) {
+		$nonLabString = $nonLabTrustedHosts -join ','
+		if ($PSCmdlet.ShouldProcess('Lab trusted hosts', 'Remove')) {
+			Set-Item -Path WSMan:\localhost\Client\TrustedHosts $nonLabString -Force
+		}
+	}
+
+	## Remove all cached credentials
+	GetCachedCredential | where {$_.Name -match $nameMatch} | foreach {
+		if ($PSCmdlet.ShouldProcess("Lab cached credential: $($_.Name)", 'Remove')) {
+			RemoveCachedCredential -TargetName $_.Name
+		}
+	}
+}
 function New-ActiveDirectoryForest {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -504,6 +548,82 @@ function RemoveCachedCredential {
 		}
 	}
 	
+}
+function ConvertToMatchValue {
+	[OutputType('string')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$String,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$RegularExpression
+	)
+
+	([regex]::Match($String, $RegularExpression)).Groups[1].Value
+	
+}
+function ConvertToCachedCredential {
+	[OutputType('pscustomobject')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		$CmdKeyOutput
+	)
+
+	if (-not ($CmdKeyOutput.where({ $_ -match '\* NONE \*' }))) {
+		if (@($CmdKeyOutput).Count -eq 1) {
+			$CmdKeyOutput = $CmdKeyOutput -split "`n"
+		}
+		$nullsRemoved = $CmdKeyOutput.where({ $_ })
+		$i = 0
+		foreach ($j in $nullsRemoved) {
+			if ($j -match '^\s+Target:') {
+				[pscustomobject]@{
+					Name        = (ConvertToMatchValue -String $j -RegularExpression 'Target: .+:target=(.*)$').Trim()
+					Category    = (ConvertToMatchValue -String $j -RegularExpression 'Target: (.+):').Trim()
+					Type        = (ConvertToMatchValue -String $nullsRemoved[$i + 1] -RegularExpression 'Type: (.+)$').Trim()
+					User        = (ConvertToMatchValue -String $nullsRemoved[$i + 2] -RegularExpression 'User: (.+)$').Trim()
+					Persistence = ($nullsRemoved[$i + 3]).Trim()
+				}
+			}
+			$i++
+		}
+	}
+}
+function GetCachedCredential {
+	[OutputType([pscustomobject])]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$ComputerName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$TargetName
+	)
+
+	if (-not $PSBoundParameters.ContainsKey('ComputerName') -and -not ($PSBoundParameters.ContainsKey('Name'))) {
+		ConvertToCachedCredential -CmdKeyOutput (cmdkey /list)
+	} elseif (-not $PSBoundParameters.ContainsKey('ComputerName') -and $PSBoundParameters.ContainsKey('Name')) {
+		ConvertToCachedCredential -CmdKeyOutput (cmdkey /list:$TargetName)
+	} else {
+		foreach ($c in $ComputerName) {
+			$cmdkeyOutput = Invoke-PsExec -ComputerName $c -Command 'cmdkey /list'
+			if ($cred = ConvertToCachedCredential -CmdKeyOutput $cmdkeyOutput) {
+				[pscustomobject]@{
+					ComputerName = $c
+					Credentials  = $cred
+				}
+			}
+		}
+	}
 }
 function TestIsIsoNameValid {
 	[OutputType([bool])]

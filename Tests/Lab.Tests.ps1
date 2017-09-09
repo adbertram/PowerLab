@@ -32,7 +32,6 @@ describe 'General VM configurations' {
 
 		$icmParams = @{
 			ComputerName = $vm.Name
-			# Credential   = $cred
 		}
 		
 		it "the [$($vm.Name)] VM should have a $($vhdConfig.Size) [$($vhdConfig.Type)] drive attached" {
