@@ -395,6 +395,7 @@ function New-LabVm {
 	$addparams = @{
 		Vm              = $vm
 		OperatingSystem = $os
+		VmType          = $Type
 	}
 	if ($AddToDomain.IsPresent) {
 		$addParams.AddToDomain = $true
@@ -410,13 +411,16 @@ function New-LabVm {
 	## Enabling CredSSP support
 	## Not using InvokeVMCommand here because we have to enable CredSSP first before it'll work
 	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
-	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
-	Invoke-Command -ComputerName $name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force } -Credential $cred
+	$localCred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
+	Invoke-Command -ComputerName $name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force } -Credential $localCred
 
 	if ($AddToDomain.IsPresent) {
+		$domainUserName = '{0}\{1}' -f $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName, $credConfig.name
+		$domainCred = New-PSCredential -UserName $domainUserName -Password $credConfig.Password
 		$addParams = @{
 			ComputerName = $vm.Name
 			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
+			Credential   = $domainCred
 			Restart      = $true
 			Force        = $true
 		}

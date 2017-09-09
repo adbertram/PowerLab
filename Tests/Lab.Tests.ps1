@@ -8,6 +8,9 @@ describe 'General VM configurations' {
 	$vhdConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig
 	$osConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration
 
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
+
 	$icmParams = @{
 		ComputerName = $script:LabConfiguration.HostServer.Name
 	}
@@ -59,7 +62,7 @@ describe 'General VM configurations' {
 		}
 
 		it "the [$($vm.Name)] VM should have a local user $($osConfig.User.Name) in the local admins group" {
-			
+			Invoke-Command -ComputerName $vm.Name
 		}
 
 		it "the [$($vm.Name)] VM should have an IP in the $($osConfig.Network.IpNetwork) network" {
