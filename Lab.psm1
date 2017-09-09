@@ -4,7 +4,8 @@
 Set-StrictMode -Version Latest
 
 ## Change this back to LabConfiguration.psd1
-$configFilePath = "$PSScriptRoot\MyLabConfiguration.psd1"
+$modulePath = $PSScriptRoot
+$configFilePath = "$modulePath\MyLabConfiguration.psd1"
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 #endregion
@@ -25,8 +26,8 @@ function New-Lab {
 		New-ActiveDirectoryForest
 		
 		# region Create the member servers
-		foreach ($type in $($script:LabConfiguration.VirtualMachines).where($_.Type -ne 'Domain Controller').Type) {
-			& "New-$TypeServer"
+		foreach ($type in $($script:LabConfiguration.VirtualMachines).where({$_.Type -ne 'Domain Controller'}).Type) {
+			& ("New-{0}Server" -f $type)
 		}
 		#endregion
 	} catch {
@@ -68,30 +69,50 @@ function New-ActiveDirectoryForest {
 	$cred = New-PSCredential -UserName "$($forestConfiguration.DomainName)\$($credConfig.name)" -Password $credConfig.Password
 	AddCachedCredential -ComputerName $vm.Name -Credential $cred
 }
-
 function New-SqlServer {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
-	()
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$AddToDomain
+	)
 
 	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
-	$vm = New-LabVm -Type 'SQL' -PassThru
+	$vmparams = @{ 
+		Type     = 'SQL' 
+		PassThru = $true
+	}
+	if ($AddToDomain.IsPresent) {
+		$vmParams.AddToDomain = $true
+	}
+	$vm = New-LabVm @vmParams
 	Install-SqlServer -ComputerName $vm.Name
-	
 }
 function New-WebServer {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
-	()
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$AddToDomain
+	)
 
 	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
-	$vm = New-LabVm -Type 'Web' -PassThru
+	$vmparams = @{ 
+		Type     = 'SQL' 
+		PassThru = $true
+	}
+	if ($AddToDomain.IsPresent) {
+		$vmParams.AddToDomain = $true
+	}
+	$vm = New-LabVm @vmParams
 	Install-IIS -ComputerName $vm.Name
 	
 }
@@ -217,7 +238,7 @@ function Install-SqlServer {
 		$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 	
 		## Copy the SQL server config ini to the VM
-		$copiedConfigFile = Copy-Item -Path "$PSscriptRoot\SqlServer.ini" -Destination "\\$ComputerName\c$" -PassThru
+		$copiedConfigFile = Copy-Item -Path "$modulePath\SqlServer.ini" -Destination "\\$ComputerName\c$" -PassThru
 		PrepareSqlServerInstallConfigFile -Path $copiedConfigFile
 
 		$sqlConfigFilePath = $copiedConfigFile.FullName.Replace("\\$ComputerName\c$\", 'C:\')
@@ -253,7 +274,56 @@ function Install-SqlServer {
 		Write-Verbose -Message 'Cleaning up installer remnants...'
 		Remove-Item -Path $destIsoPath, $copiedConfigFile.FullName -Recurse -ErrorAction Ignore
 	}
+}
+function WaitWinRM {
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
 
+		[Parameter()]
+		[pscredential]$Credential,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[ValidateRange(1, [Int64]::MaxValue)]
+		[int]$Timeout = 1500
+	)
+	
+	try {
+		$icmParams = @{
+			ComputerName  = $ComputerName
+			ScriptBlock   = { $true }
+			SessionOption = (New-PSSessionOption -NoMachineProfile -OpenTimeout 20000 -SkipCACheck -SkipRevocationCheck) 
+			ErrorAction   = 'SilentlyContinue'
+			ErrorVariable = 'err'
+		}
+
+		if ($PSBoundParameters.ContainsKey('Credential')) {
+			$icmParams.Credential = $Credential
+		}
+
+		$timer = [Diagnostics.Stopwatch]::StartNew()
+
+		Wait-Ping -ComputerName $ComputerName -Timeout $Timeout
+
+		while (-not (Invoke-Command @icmParams)) {
+			Write-Verbose -Message "Waiting for [$($ComputerName)] to become available to WinRM..."
+			if ($timer.Elapsed.TotalSeconds -ge $Timeout) {
+				throw "Timeout exceeded. Giving up on WinRM availability to [$ComputerName]"
+			}
+			Start-Sleep -Seconds 10
+		}
+	} catch {
+		$PSCmdlet.ThrowTerminatingError($_)
+		$false
+	} finally {
+		if (Test-Path -Path Variable:\Timer) {
+			$timer.Stop()
+		}
+	}
 }
 function PrepareSqlServerInstallConfigFile {
 	[OutputType('void')]
@@ -288,7 +358,11 @@ function New-LabVm {
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[switch]$PassThru
+		[switch]$PassThru,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$AddToDomain
 	)
 
 	$ErrorActionPreference = 'Stop'
@@ -317,23 +391,34 @@ function New-LabVm {
 
 	## Create the VHD and install Windows on the VM
 	$os = @($script:LabConfiguration.VirtualMachines).where({$_.Type -eq $Type}).OS
-	AddOperatingSystem -Vm $vm -OperatingSystem $os
+	$addparams = @{
+		Vm              = $vm
+		OperatingSystem = $os
+	}
+	if ($PSBoundParameters.ContainsKey('AddToDomain')) {
+		$addParams.AddToDomain = $true
+	}
+	AddOperatingSystem @addparams
 
 	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
 
-	Start-Sleep -Seconds 10
-	Wait-Ping -ComputerName $name
-
-	## Adding a cached cred to copy over files to VM easily
-	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
-	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
-	AddCachedCredential -ComputerName $name -Credential $cred
+	WaitWinRM -ComputerName $vm.Name
 
 	Add-TrustedHostComputer -ComputerName $name
 
 	## Enabling CredSSP support
 	## Not using InvokeVMCommand here because we have to enable CredSSP first before it'll work
 	Invoke-Command -ComputerName $name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force } -Credential $cred
+
+	if ($AddToDomain.IsPresent) {
+		$addParams = @{
+			ComputerName = $vm.Name
+			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
+			Restart      = $true
+			Force        = $true
+		}
+		Add-Computer @addParams
+	}
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -460,7 +545,11 @@ function AddOperatingSystem {
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$VmType
+		[string]$VmType,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$AddToDomain
 	)
 
 	$ErrorActionPreference = 'Stop'
@@ -505,6 +594,17 @@ function AddOperatingSystem {
 		## Add the VM to the local hosts file
 		if (-not (Get-HostsFileEntry | where {$_.HostName -eq $vm.Name})) {
 			Add-HostsFileEntry -HostName $vm.Name -IpAddress $ipAddress -ErrorAction Ignore
+		}
+
+		## Add the cached credential the local computer
+		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+		if ($AddToDomain.IsPresent) {
+			$userName = '{0}\{1}' -f $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName, $credConfig.name
+		} else {
+			$userName = $credConfig.name
+			
+			$cred = New-PSCredential -UserName $userName -Password $credConfig.Password
+			AddCachedCredential -ComputerName $vm.Name -Credential $cred
 		}
 	} catch {
 		$PSCmdlet.ThrowTerminatingError($_)

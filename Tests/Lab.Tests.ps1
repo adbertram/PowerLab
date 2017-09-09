@@ -4,47 +4,57 @@ $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 describe 'General VM configurations' {
 
 	$vmConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig
+	$vms = $script:LabConfiguration.VirtualMachines
 	$vhdConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig
 	$osConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration
 
-	it "all VMs should have a $($vhdConfig.Size) [$($vhdConfig.Type)] drive attached" {
-
+	$icmParams = @{
+		ComputerName = $script:LabConfiguration.HostServer.Name
 	}
+	$labVMs = Invoke-Command @icmParams -ScriptBlock { Get-Vm | where { $_.Name -match ($using:vms.BaseName -join '|')}}
+	$labVhds = Invoke-Command @icmParams -ScriptBlock { Get-Vm -Name $using:LabVMs.Name | Get-VMHardDiskDrive }
 
-	it "all VMs' VHDs should have a $($vhdConfig.Sizing) sized VHDX" {
+	foreach ($vm in $labVMs) {
+		it "the [$($vm.Name)] VM should have a $($vhdConfig.Size) [$($vhdConfig.Type)] drive attached" {
+			# $vm.Sizing | should be $vhdConfig.Size
+			# $vm.Type
+		}
 
-	}
+		it "the [$($vm.Name)] VM's VHD should have a $($vhdConfig.Sizing) sized VHDX" {
 
-	it "all VMs' VHDs should be located at $($vhdConfig.Path)" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM's VHD should be located at $($vhdConfig.Path)" {
 
-	it "all VMs' VHDs should be partioned $($vhdConfig.PartionStyle)" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM's VHD should be partioned $($vhdConfig.PartionStyle)" {
 
-	it "all VMs should have a memory of $($vmConfig.StartupMemory)" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM should have a memory of $($vmConfig.StartupMemory)" {
 
-	it "all VMs should have a processor count of $($vmConfig.ProcessorCount)" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM should have a processor count of $($vmConfig.ProcessorCount)" {
 
-	it "all VMs should be located at $($vmConfig.Path)" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM should be located at $($vmConfig.Path)" {
 
-	it "all VMs should have a local user $($osConfig.User.Name) in the local admins group" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM should have a local user $($osConfig.User.Name) in the local admins group" {
 
-	it "all VMs should have an IP in the $($osConfig.Network.IpNetwork) network" {
+		}
 
-	}
+		it "the [$($vm.Name)] VM should have an IP in the $($osConfig.Network.IpNetwork) network" {
 
-	it "all VMs should have the DNS server of $($osConfig.Network.DnsServer)" {
+		}
 
+		it "the [$($vm.Name)] VM should have the DNS server of $($osConfig.Network.DnsServer)" {
+
+		}
 	}
 }
 
