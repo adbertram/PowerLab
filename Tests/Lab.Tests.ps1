@@ -186,22 +186,33 @@ describe 'Active Directory Forest' {
 	}
 
 	it "the domain mode should be $($expectedAdConfig.DomainMode)" {
-		$result | should 
+		Invoke-Command -ComputerName $dcName -ScriptBlock {
+			Get-ADDSForest
+		}
 		
 	}
 
 	it "the forest mode should be $($expectedAdConfig.ForestMode)" {
-		$result | should 
+		Invoke-Command -ComputerName $dcName -ScriptBlock {
+			Get-ADDSForest
+		}
 		
 	}
 
 	it "the name should be $($expectedAdConfig.DomainName)" {
-		$result | should 
+		$Invoke-Command -ComputerName $dcName -ScriptBlock {
+			Get-ADDSForest
+		}
 		
 	}
 
 	it "the IP address of the DC should be [$($osConfig.Network.DnsServer)]" {
-
+		$expectedIpOctets = $osConfig.Network.IpNetwork.Split('.')[0..2] -join '.'
+			
+		$ipInfo = Invoke-Command @icmParams -ScriptBlock { Get-NetIPAddress -AddressFamily IPv4 -PrefixLength 24 }
+		$actualIpOctets = $ipInfo.IPAddress.Split('.')[0..2] -join '.'
+			
+		$actualIpOctets | should be $expectedIpOctets
 	}
 }
 
