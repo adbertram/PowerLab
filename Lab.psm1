@@ -27,7 +27,7 @@ function New-Lab {
 		
 		# region Create the member servers
 		foreach ($type in $($script:LabConfiguration.VirtualMachines).where({$_.Type -ne 'Domain Controller'}).Type) {
-			& ("New-{0}Server" -f $type)
+			& ("New-{0}Server" -f $type) -AddToDomain
 		}
 		#endregion
 	} catch {
@@ -249,17 +249,18 @@ function Install-SqlServer {
 		$uncIsoPath = ConvertToUncPath -LocalFilePath $isoPath -ComputerName $script:LabConfiguration.HostServer.Name
 	
 		## Copy the ISO to the VM
-		$destIsoPath = '\\{0}\c$\{1}' -f $ComputerName, $isoConfig.FileName
+		$localDestIsoPath = 'C:\{0}' -f $isoConfig.FileName
+		$destIsoPath = ConvertToUncPath -ComputerName $ComputerName -LocalFilePath $localDestIsoPath
 		if (-not (Test-Path -Path $destIsoPath -PathType Leaf)) {
 			Write-Verbose -Message "Copying SQL Server ISO to [$($destisoPath)]..."
-			Copy-Item -Path $uncIsoPath -Destination $destIsoPath -Force -PassThru
+			Copy-Item -Path $uncIsoPath -Destination $destIsoPath -Force
 		}
 	
 		## Execute the installer
 		Write-Verbose -Message 'Running SQL Server installer...'
 		$icmParams = @{
 			ComputerName = $ComputerName
-			ArgumentList = $sqlConfigFilePath, $isoPath
+			ArgumentList = $sqlConfigFilePath, $localDestIsoPath
 			ScriptBlock  = {
 				$image = Mount-DiskImage -ImagePath $args[1] -PassThru
 				$installerPath = "$(($image | Get-Volume).DriveLetter):"
@@ -402,12 +403,14 @@ function New-LabVm {
 
 	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
 
-	WaitWinRM -ComputerName $vm.Name
-
 	Add-TrustedHostComputer -ComputerName $name
+
+	WaitWinRM -ComputerName $vm.Name
 
 	## Enabling CredSSP support
 	## Not using InvokeVMCommand here because we have to enable CredSSP first before it'll work
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 	Invoke-Command -ComputerName $name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force } -Credential $cred
 
 	if ($AddToDomain.IsPresent) {
