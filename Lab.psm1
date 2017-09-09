@@ -396,7 +396,7 @@ function New-LabVm {
 		Vm              = $vm
 		OperatingSystem = $os
 	}
-	if ($PSBoundParameters.ContainsKey('AddToDomain')) {
+	if ($AddToDomain.IsPresent) {
 		$addParams.AddToDomain = $true
 	}
 	AddOperatingSystem @addparams
