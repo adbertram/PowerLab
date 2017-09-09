@@ -11,41 +11,55 @@ describe 'General VM configurations' {
 	$icmParams = @{
 		ComputerName = $script:LabConfiguration.HostServer.Name
 	}
-	$labVMs = Invoke-Command @icmParams -ScriptBlock { Get-Vm | where { $_.Name -match ($using:vms.BaseName -join '|')}}
-	$labVhds = Invoke-Command @icmParams -ScriptBlock { Get-Vm -Name $using:LabVMs.Name | Get-VMHardDiskDrive }
+	$labVMs = Invoke-Command @icmParams -ScriptBlock { 
+		Get-Vm | where { $_.Name -match ($using:vms.BaseName -join '|')} | foreach {
+			$vmVhd = $_ | Get-VMHardDiskDrive | Get-Vhd
+			[pscustomobject]@{
+				Name             = $_.VmName
+				VHDSize          = ($vmVhd.Size / 1GB) 
+				VHDFormat        = [string]$vmVhd.VhdFormat
+				VHDType          = [string]$vmVhd.VhdType
+				VHDPath          = $vmVhd.Path
+				VMState          = [string]$_.State
+				VMPath           = $_.Path
+				VMMemory         = ($_.MemoryStartup / 1GB)
+				VMProcessorCount = [string]$_.ProcessorCount
+			}
+		}
+	}
 
 	foreach ($vm in $labVMs) {
 		it "the [$($vm.Name)] VM should have a $($vhdConfig.Size) [$($vhdConfig.Type)] drive attached" {
-			# $vm.Sizing | should be $vhdConfig.Size
-			# $vm.Type
+			$vm.VHDSize | should be ($vhdConfig.Size -replace 'GB')
+			$vm.VHDFormat | should be $vhdConfig.Type
 		}
 
 		it "the [$($vm.Name)] VM's VHD should have a $($vhdConfig.Sizing) sized VHDX" {
-
+			$vm.VHDType | should be $vhdConfig.Sizing
 		}
 
 		it "the [$($vm.Name)] VM's VHD should be located at $($vhdConfig.Path)" {
-
+			$vm.VHDPath | should be (Join-Path -Path $vhdConfig.Path -ChildPath "$($vm.Name).$($vm.VHDFormat)")
 		}
 
-		it "the [$($vm.Name)] VM's VHD should be partioned $($vhdConfig.PartionStyle)" {
-
+		it "the [$($vm.Name)] VM should be running" {
+			$vm.VMState | should be 'Running'
 		}
 
 		it "the [$($vm.Name)] VM should have a memory of $($vmConfig.StartupMemory)" {
-
+			$vm.VMMemory | should be ($vmConfig.StartupMemory -replace 'GB')
 		}
 
 		it "the [$($vm.Name)] VM should have a processor count of $($vmConfig.ProcessorCount)" {
-
+			$vm.VMProcessorCount | should be $vmConfig.ProcessorCount
 		}
 
 		it "the [$($vm.Name)] VM should be located at $($vmConfig.Path)" {
-
+			$vm.VMPath | should be (Join-Path -Path $vmConfig.Path -ChildPath $vm.Name)
 		}
 
 		it "the [$($vm.Name)] VM should have a local user $($osConfig.User.Name) in the local admins group" {
-
+			
 		}
 
 		it "the [$($vm.Name)] VM should have an IP in the $($osConfig.Network.IpNetwork) network" {
