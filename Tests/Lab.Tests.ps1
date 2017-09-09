@@ -9,7 +9,7 @@ describe 'General VM configurations' {
 	$osConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration
 
 	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
-	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
+	# $cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 
 	$icmParams = @{
 		ComputerName = $script:LabConfiguration.HostServer.Name
@@ -32,6 +32,12 @@ describe 'General VM configurations' {
 	}
 
 	foreach ($vm in $labVMs) {
+
+		$icmParams = @{
+			ComputerName = $vm.Name
+			# Credential   = $cred
+		}
+		
 		it "the [$($vm.Name)] VM should have a $($vhdConfig.Size) [$($vhdConfig.Type)] drive attached" {
 			$vm.VHDSize | should be ($vhdConfig.Size -replace 'GB')
 			$vm.VHDFormat | should be $vhdConfig.Type
@@ -61,15 +67,37 @@ describe 'General VM configurations' {
 			$vm.VMPath | should be (Join-Path -Path $vmConfig.Path -ChildPath $vm.Name)
 		}
 
-		it "the [$($vm.Name)] VM should have a local user $($osConfig.User.Name) in the local admins group" {
-			Invoke-Command -ComputerName $vm.Name
+		it "the [$($vm.Name)] VM should have a local user $($osConfig.Users.Name) in the local admins group" {
+			$session = New-CimSession -ComputerName $vm.Name
+			$cimParams = @{
+				ClassName = 'Win32_GroupUser'
+				Filter    = "GroupComponent=`"Win32_Group.Domain='$($vm.Name)',Name='Administrators'`""
+			}
+			Get-CimInstance @cimParams | Select-Object -ExpandProperty PartComponent
+
+			if ($session -ne $null) {
+				$session | Remove-CimSession;
+			}
 		}
 
 		it "the [$($vm.Name)] VM should have an IP in the $($osConfig.Network.IpNetwork) network" {
 
+			$expectedIpOctets = $osConfig.Network.IpNetwork.Split('.')[0..2] -join '.'
+			
+			$ipInfo = Invoke-Command @icmParams -ScriptBlock { Get-NetIPAddress -AddressFamily IPv4 -PrefixLength 24 }
+			$actualIpOctets = $ipInfo.IPAddress.Split('.')[0..2] -join '.'
+			
+			$actualIpOctets | should be $expectedIpOctets
 		}
 
 		it "the [$($vm.Name)] VM should have the DNS server of $($osConfig.Network.DnsServer)" {
+
+			$dnsAddresses = Invoke-Command @icmParams -ScriptBlock { @(Get-DnsClientServerAddress -AddressFamily IPv4).where({$_.ServerAddresses}).ServerAddresses }
+			if ($osConfig.Network.DnsServer -in $dnsAddresses) {
+				$osConfig.Network.DnsServer  | should bein $dnsAddresses
+			} else {
+				'127.0.0.1' | should bein $dnsAddresses
+			}
 
 		}
 	}

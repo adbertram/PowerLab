@@ -52,7 +52,7 @@
 			PartitionStyle = 'GPT'
 		} 
 		VMConfig      = @{
-			StartupMemory  = '4GB' 
+			StartupMemory  = '2GB' 
 			ProcessorCount = 1 
 			Path           = 'C:\MyLab\VMs' 
 			Generation     = 2
