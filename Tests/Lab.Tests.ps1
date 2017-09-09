@@ -104,30 +104,30 @@ describe 'Web Server' {
 
 	$webConfig = $script:LabConfiguration.DefaultServerConfiguration.Web
 	$webVmConfig = $script:LabConfiguration.VirtualMachines | where {$_.Type -eq 'Web'}
+	$webSrvName = '{0}1' -f $webVmConfig
 
 	it "all web servers should have the base name of [$($webVmConfig.BaseName)]" {
-		$result | should 
-		
+		Test-Connection -ComputerName $webSrvName -Quiet -Count 1 | should be $true
 	}
 
 	it "all web servers should have an operating system of [$($webVmConfig.OS)]" {
-		$result | should 
-		
+		$os = (Get-CimInstance -ComputerName $webSrvName -ClassName win32_operatingsystem -Property caption).caption
+		$os | should match $webVmConfig.OS
 	}
 
 	it "all web servers should be running the [$($webVmConfig.Edition)] edition of Windows" {
-		$result | should 
-		
+		$os = (Get-CimInstance -ComputerName $webSrvName -ClassName win32_operatingsystem -Property caption).caption
+		$os | should match $webVmConfig.Edition
 	}
 
 	it "the IIS site name should be $($webConfig.WebsiteName)" {
-		$result | should 
-		
+		$sites = Invoke-Command -ComputerName $webSrvName -ScriptBlock { Import-Module -Name WebAdministration; Get-IISWebSite }
+		$webConfig.WebsiteName | should bein $sites.Name
 	}
 
 	it "the IIS application pool on the site should be $($webConfig.ApplicationPoolName) " {
-		$result | should 
-		
+		$apppools = Invoke-Command -ComputerName $webSrvName -ScriptBlock { Import-Module -Name WebAdministration; Get-IISApplicationPool }
+		$webConfig.ApplicationPoolName | should bein $apppools.Name
 	}
 }
 
@@ -135,30 +135,29 @@ describe 'SQL Server' {
 
 	$sqlConfig = $script:LabConfiguration.DefaultServerConfiguration.SQL
 	$sqlVmConfig = $script:LabConfiguration.VirtualMachines | where {$_.Type -eq 'SQL'}
+	$sqlSrvName = '{0}1' -f $SqlVmConfig
 
 	it "all SQL servers should have the base name of [$($sqlVmConfig.BaseName)]" {
-		$result | should 
-		
+		Test-Connection -ComputerName $sqlSrvName -Quiet -Count 1 | should be $true	
 	}
 
 	it "all SQL servers should have an operating system of [$($sqlVmConfig.OS)]" {
-		$result | should 
-		
+		$os = (Get-CimInstance -ComputerName $sqlSrvName -ClassName win32_operatingsystem -Property caption).caption
+		$os | should match $sqlVmConfig.OS
 	}
 
 	it "all SQL servers should be running the [$($sqlVmConfig.Edition)] edition of Windows" {
-		$result | should 
-		
+		$os = (Get-CimInstance -ComputerName $sqlSrvName -ClassName win32_operatingsystem -Property caption).caption
+		$os | should match $sqlVmConfig.Edition
 	}
 
 	it "the SQL administrator account should be $($sqlConfig.SystemAdministratorAccount.Name)" {
 		$result | should 
-		
 	}
 
 	it "the SQL agent service should be running under the $($sqlConfig.ServiceAccount.Name) account" {
-		$result | should 
-		
+		$service = Get-CimIntance -Class 'Win32_Service' -ComputerName $sqlSrvName -Filter "Name = 'XXXXXXX'"
+		$service.Something | should be $sqlConfig.ServiceAccount.Name
 	}
 }
 
@@ -168,48 +167,37 @@ describe 'Active Directory Forest' {
 	$adVmConfig = $script:LabConfiguration.VirtualMachines | where {$_.Type -eq 'Domain Controller'}
 	$dcName = '{0}1' -f $adVmConfig
 
+	$forest = Invoke-Command -ComputerName $dcName -ScriptBlock { Get-AdForest }
+	$domain = Invoke-Command -ComputerName $dcName -ScriptBlock { Get-AdDomain }
+
 	it "the domain controller should have the base name of [$($adVmConfig.BaseName)]" {
 		Test-Connection -ComputerName $dcName -Quiet -Count 1 | should be $true
 	}
 
 	it "the domain controller should have an operating system of [$($adVmConfig.OS)]" {
-
 		$os = (Get-CimInstance -ComputerName $dcName -ClassName win32_operatingsystem -Property caption).caption
 		$os | should match $adVmConfig.OS
-		
 	}
 
 	it "the domain controller should be running the [$($adVmConfig.Edition)] edition of Windows" {
 		$os = (Get-CimInstance -ComputerName $dcName -ClassName win32_operatingsystem -Property caption).caption
 		$os | should match $adVmConfig.Edition
-		
 	}
 
 	it "the domain mode should be $($expectedAdConfig.DomainMode)" {
-		Invoke-Command -ComputerName $dcName -ScriptBlock {
-			Get-ADDSForest
-		}
-		
+		$domain.DomainMode | should be $expectedAdConfig.DomainMode
 	}
 
 	it "the forest mode should be $($expectedAdConfig.ForestMode)" {
-		Invoke-Command -ComputerName $dcName -ScriptBlock {
-			Get-ADDSForest
-		}
-		
+		$forest.ForestMode | should be $expectedAdConfig.ForestMode
 	}
 
-	it "the name should be $($expectedAdConfig.DomainName)" {
-		$Invoke-Command -ComputerName $dcName -ScriptBlock {
-			Get-ADDSForest
-		}
-		
+	it "the domain name should be $($expectedAdConfig.DomainName)" {
+		$domain.Name | should be $expectedAdConfig.DomainName
 	}
 
 	it "the IP address of the DC should be [$($osConfig.Network.DnsServer)]" {
-		$expectedIpOctets = $osConfig.Network.IpNetwork.Split('.')[0..2] -join '.'
-			
-		$ipInfo = Invoke-Command @icmParams -ScriptBlock { Get-NetIPAddress -AddressFamily IPv4 -PrefixLength 24 }
+		$ipInfo = Invoke-Command -ComputerName $dcName -ScriptBlock { Get-NetIPAddress -AddressFamily IPv4 -PrefixLength 24 }
 		$actualIpOctets = $ipInfo.IPAddress.Split('.')[0..2] -join '.'
 			
 		$actualIpOctets | should be $expectedIpOctets
