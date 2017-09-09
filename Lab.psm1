@@ -23,7 +23,7 @@ function New-Lab {
 		NewLabSwitch
 
 		## Create the domain controller
-		# New-ActiveDirectoryForest
+		New-ActiveDirectoryForest
 		
 		# region Create the member servers
 		foreach ($type in $($script:LabConfiguration.VirtualMachines).where({$_.Type -ne 'Domain Controller'}).Type) {
