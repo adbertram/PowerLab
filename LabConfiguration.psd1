@@ -61,10 +61,17 @@
 	}
 
 	DefaultOperatingSystemConfiguration = @{
-		User    = @{
-			Name     = 'LabUser'
-			Password = 'P@$$w0rd12'
-		}
+		Users   = @(
+			@{
+				Name     = 'LabUser'
+				Password = 'P@$$w0rd12'
+			}
+			@{
+				Name     = 'Administrator'
+				Password = 'P@$$w0rd12'
+			}
+		)
+
 		Network = @{
 			IpNetwork = '192.168.0.0' ## Ensure this network does not conflict with any existing
 			DnsServer = '192.168.0.100' ## This will also be the IP of the domain controller (if deployed)

@@ -61,13 +61,10 @@ function New-ActiveDirectoryForest {
 	InvokeVmCommand -ArgumentList $forestParams -ComputerName $vm.Name -ScriptBlock { 
 		param($forestParams)
 		$null = Install-windowsfeature -Name AD-Domain-Services -IncludeManagementTools
-		Install-ADDSForest @forestParams
+		$null = Install-ADDSForest @forestParams
 	}
-	
-
-	# Install-ADDSDomainController -DomainName test.local -Confirm:$false -InstallDns -SafeModeAdministratorPassword (ConvertTo-SecureString -AsPlainText "p@ssw0rd" -Force)
-	
 }
+
 function New-SqlServer {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
@@ -212,7 +209,7 @@ function Install-SqlServer {
 	$ErrorActionPreference = 'Stop'
 
 	try {
-		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
+		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
 		$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 	
 		## Copy the SQL server config ini to the VM
@@ -324,7 +321,7 @@ function New-LabVm {
 	Wait-Ping -ComputerName $name
 
 	## Adding a cached cred to copy over files to VM easily
-	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
 	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 	AddCachedCredential -ComputerName $name -Credential $cred
 
@@ -448,8 +445,8 @@ function AddOperatingSystem {
 			IpAddress    = $ipAddress
 			DnsServer    = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Network.DnsServer
 			ProductKey   = $isoConfig.ProductKey
-			UserName     = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Name
-			UserPassword = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User.Password
+			UserName     = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' }).Name
+			UserPassword = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' }).Password
 			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
 		}
 		if ($PSBoundParameters.ContainsKey('VmType')) {
@@ -720,7 +717,7 @@ function InvokeVmCommand {
 
 	$ErrorActionPreference = 'Stop'
 
-	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.User
+	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
 	$cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 	$icmParams = @{
 		ComputerName   = $ComputerName 
@@ -984,23 +981,28 @@ function PrepareUnattendXmlFile {
 	## Insert the correct product key
 	$xUnattend.SelectSingleNode('//ns:ProductKey', $ns).InnerText = $ProductKey
 	
-	## Insert the user name and password
-	$userxPaths = '//ns:FullName', '//ns:Username', '//ns:DisplayName', '//ns:Name'
+	# ## Insert the user names and password
+	$localuser = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+	$xUnattend.SelectSingleNode('//ns:LocalAccounts/ns:LocalAccount/ns:Password/ns:Value[text()="XXXX"]', $ns).InnerXml  = $localuser.Password
+	$xUnattend.SelectSingleNode('//ns:LocalAccounts/ns:LocalAccount/ns:Name[text()="XXXX"]', $ns).InnerXml  = $localuser.Name
+
+	$userxPaths = '//ns:FullName', '//ns:Username'
 	$userxPaths | foreach {
 		$xUnattend.SelectSingleNode($_, $ns).InnerXml = $UserName
 	}
 
-	$passXpaths = '//ns:LocalAccounts/ns:LocalAccount/ns:Password/ns:Value'
-	$passXPaths | foreach {
-		$xUnattend.SelectSingleNode($_, $ns).InnerXml = $UserPassword
-	}
+	## Change the local admin password
+	$localadmin = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -eq 'Administrator' })
+	$xUnattend.SelectSingleNode('//ns:LocalAccounts/ns:LocalAccount/ns:Name[text()="Administrator"]', $ns).InnerText = $localadmin.Password
+	
+	$netUserCmd = $xUnattend.SelectSingleNode('//ns:FirstLogonCommands/ns:SynchronousCommand/ns:CommandLine[text()="net user administrator XXXX"]', $ns)
+	$netUserCmd.InnerText = $netUserCmd.InnerText.Replace('XXXX', $localadmin.Password)
 
+	## Set the lab user autologon
 	$xUnattend.SelectSingleNode('//ns:AutoLogon/ns:Password/ns:Value', $ns).InnerText = $UserPassword
 
 	## Insert the host name
 	$xUnattend.SelectSingleNode('//ns:ComputerName', $ns).InnerText = $VMName
-
-	
 
 	## Set the domain names
 	$xUnattend.SelectSingleNode('//ns:DNSDomain', $ns) | foreach { $_.InnerText = $DomainName }

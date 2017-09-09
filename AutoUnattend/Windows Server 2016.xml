@@ -167,6 +167,11 @@
 					<Order>1</Order>
 					<Description>Disable Windows Firewall</Description>
 				</SynchronousCommand>
+				<SynchronousCommand wcm:action="add">
+					<CommandLine>net user administrator XXXX</CommandLine>
+					<Order>2</Order>
+					<Description>Change local administrator password</Description>
+				</SynchronousCommand>
 			</FirstLogonCommands>
 			<OOBE>
 				<HideEULAPage>true</HideEULAPage>
@@ -185,10 +190,19 @@
 							<Value></Value>
 							<PlainText>true</PlainText>
 						</Password>
-						<Description></Description>
+						<Description>Local Administrator</Description>
+						<DisplayName>Administrator</DisplayName>
+						<Group>Administrators</Group>
+						<Name>Administrator</Name>
+					</LocalAccount>
+					<LocalAccount wcm:action="add">
+						<Password>
+							<Value>XXXX</Value>
+							<PlainText>true</PlainText>
+						</Password>
 						<DisplayName></DisplayName>
 						<Group>Administrators</Group>
-						<Name></Name>
+						<Name>XXXX</Name>
 					</LocalAccount>
 				</LocalAccounts>
 			</UserAccounts>
