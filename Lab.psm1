@@ -86,11 +86,22 @@ function New-SqlServer {
 		Type     = 'SQL' 
 		PassThru = $true
 	}
-	if ($AddToDomain.IsPresent) {
-		$vmParams.AddToDomain = $true
-	}
 	$vm = New-LabVm @vmParams
 	Install-SqlServer -ComputerName $vm.Name
+
+	if ($AddToDomain.IsPresent) {
+		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+		$domainUserName = '{0}\{1}' -f $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName, $credConfig.name
+		$domainCred = New-PSCredential -UserName $domainUserName -Password $credConfig.Password
+		$addParams = @{
+			ComputerName = $vm.Name
+			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
+			Credential   = $domainCred
+			Restart      = $true
+			Force        = $true
+		}
+		Add-Computer @addParams
+	}
 }
 function New-WebServer {
 	[OutputType([void])]
@@ -109,11 +120,22 @@ function New-WebServer {
 		Type     = 'SQL' 
 		PassThru = $true
 	}
-	if ($AddToDomain.IsPresent) {
-		$vmParams.AddToDomain = $true
-	}
 	$vm = New-LabVm @vmParams
 	Install-IIS -ComputerName $vm.Name
+
+	if ($AddToDomain.IsPresent) {
+		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
+		$domainUserName = '{0}\{1}' -f $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName, $credConfig.name
+		$domainCred = New-PSCredential -UserName $domainUserName -Password $credConfig.Password
+		$addParams = @{
+			ComputerName = $vm.Name
+			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
+			Credential   = $domainCred
+			Restart      = $true
+			Force        = $true
+		}
+		Add-Computer @addParams
+	}
 	
 }
 function Install-IIS {
@@ -359,11 +381,7 @@ function New-LabVm {
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[switch]$PassThru,
-
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[switch]$AddToDomain
+		[switch]$PassThru
 	)
 
 	$ErrorActionPreference = 'Stop'
@@ -397,9 +415,6 @@ function New-LabVm {
 		OperatingSystem = $os
 		VmType          = $Type
 	}
-	if ($AddToDomain.IsPresent) {
-		$addParams.AddToDomain = $true
-	}
 	AddOperatingSystem @addparams
 
 	InvokeHyperVCommand -Scriptblock { Start-Vm -Name $args[0] } -ArgumentList $name
@@ -413,19 +428,6 @@ function New-LabVm {
 	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
 	$localCred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 	Invoke-Command -ComputerName $name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force } -Credential $localCred
-
-	if ($AddToDomain.IsPresent) {
-		$domainUserName = '{0}\{1}' -f $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName, $credConfig.name
-		$domainCred = New-PSCredential -UserName $domainUserName -Password $credConfig.Password
-		$addParams = @{
-			ComputerName = $vm.Name
-			DomainName   = $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName
-			Credential   = $domainCred
-			Restart      = $true
-			Force        = $true
-		}
-		Add-Computer @addParams
-	}
 	
 	if ($PassThru.IsPresent) {
 		$vm
@@ -556,7 +558,7 @@ function AddOperatingSystem {
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[switch]$AddToDomain
+		[switch]$DomainJoined
 	)
 
 	$ErrorActionPreference = 'Stop'
@@ -605,7 +607,7 @@ function AddOperatingSystem {
 
 		## Add the cached credential the local computer
 		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
-		if ($AddToDomain.IsPresent) {
+		if ($DomainJoined.IsPresent) {
 			$userName = '{0}\{1}' -f $script:LabConfiguration.ActiveDirectoryConfiguration.DomainName, $credConfig.name
 		} else {
 			$userName = $credConfig.name

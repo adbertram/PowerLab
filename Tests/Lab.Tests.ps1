@@ -1,15 +1,12 @@
 $configFilePath = "$($PSScriptRoot | Split-Path -Parent)\LabConfiguration.psd1"
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
+$vmConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig
+$vms = $script:LabConfiguration.VirtualMachines
+$vhdConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig
+$osConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration
+
 describe 'General VM configurations' {
-
-	$vmConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig
-	$vms = $script:LabConfiguration.VirtualMachines
-	$vhdConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VHDConfig
-	$osConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration
-
-	$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
-	# $cred = New-PSCredential -UserName $credConfig.name -Password $credConfig.Password
 
 	$icmParams = @{
 		ComputerName = $script:LabConfiguration.HostServer.Name
@@ -169,20 +166,22 @@ describe 'Active Directory Forest' {
 
 	$expectedAdConfig = $script:LabConfiguration.ActiveDirectoryConfiguration
 	$adVmConfig = $script:LabConfiguration.VirtualMachines | where {$_.Type -eq 'Domain Controller'}
-	$osConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration
+	$dcName = '{0}1' -f $adVmConfig
 
-	it "all domain controllers should have the base name of [$($adVmConfig.BaseName)]" {
-		$result | should 
+	it "the domain controller should have the base name of [$($adVmConfig.BaseName)]" {
+		Test-Connection -ComputerName $dcName -Quiet -Count 1 | should be $true
+	}
+
+	it "the domain controller should have an operating system of [$($adVmConfig.OS)]" {
+
+		$os = (Get-CimInstance -ComputerName $dcName -ClassName win32_operatingsystem -Property caption).caption
+		$os | should match $adVmConfig.OS
 		
 	}
 
-	it "all domain controllers should have an operating system of [$($adVmConfig.OS)]" {
-		$result | should 
-		
-	}
-
-	it "all domain controllers should be running the [$($adVmConfig.Edition)] edition of Windows" {
-		$result | should 
+	it "the domain controller should be running the [$($adVmConfig.Edition)] edition of Windows" {
+		$os = (Get-CimInstance -ComputerName $dcName -ClassName win32_operatingsystem -Property caption).caption
+		$os | should match $adVmConfig.Edition
 		
 	}
 
