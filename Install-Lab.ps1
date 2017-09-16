@@ -296,18 +296,13 @@ try {
 		$null = cmdkey /add:($HostServerConfig.Name) /user:($HostServerConfig.Credential.UserName) /pass:($HostServerConfig.Credential.GetNetworkCredential().Password)
 	}
 
-	if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName Microsoft-Hyper-V -Online) {
-		if ($hyperVToolFeature.State -ne 'Enabled') {
+	if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V' -Online) {
+		if ($hyperVFeature.State -ne 'Enabled') {
 			Write-Host 'Enabling the Hyper-V management features...'
-			Microsoft-Hyper-V
-			$hyperVToolFeature | Enable-WindowsOptionalFeature -Online
+			$hyperVFeature | Enable-WindowsOptionalFeature -Online -All -NoRestart
 		}
 	} else {
 		throw 'Hyper-V Management Tools feature was not found. Are you on Windows 10?'
-	}
-
-	'Microsoft-Hyper-V', 'Microsoft-Hyper-V-Management-PowerShell' | foreach { 
-		Get-WindowsOptionalFeature -Online -FeatureName $_ | Enable-WindowsOptionalFeature -Online 
 	}
 
 	## Force Hyper-V module 1.1 to ensure Windows 10 can manage Hyper-V 2012
