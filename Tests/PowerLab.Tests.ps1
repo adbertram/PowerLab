@@ -1,4 +1,4 @@
-$configFilePath = "$($PSScriptRoot | Split-Path -Parent)\LabConfiguration.psd1"
+$configFilePath = "$($PSScriptRoot | Split-Path -Parent)\PowerLabConfiguration.psd1"
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 $vmConfig = $script:LabConfiguration.DefaultVirtualMachineConfiguration.VMConfig
@@ -203,7 +203,7 @@ describe 'Active Directory Forest' {
 	}
 }
 
-describe 'Hyper-V Lab Infrastructure' {
+describe 'Hyper-V PowerLab Infrastructure' {
 
 	$uncProjectRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.ProjectRootFolder -ComputerName $script:LabConfiguration.HostServer.Name
 	$isoRoot = ConvertToUncPath -LocalFilePath $script:LabConfiguration.IsoFolderPath -ComputerName $script:LabConfiguration.HostServer.Name

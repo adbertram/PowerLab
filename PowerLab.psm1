@@ -3,9 +3,8 @@
 #region Configuration
 Set-StrictMode -Version Latest
 
-## Change this back to LabConfiguration.psd1
 $modulePath = $PSScriptRoot
-$configFilePath = "$modulePath\MyLabConfiguration.psd1"
+$configFilePath = "$modulePath\PowerLabConfiguration.psd1"
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 #endregion

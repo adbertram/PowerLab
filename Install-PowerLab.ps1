@@ -204,18 +204,18 @@ function Add-TrustedHostComputer {
 #endregion
 
 try {
-	$repoZipFile = "$PSScriptRoot\AutomateTheBoringStuffWithPowerShell.zip"
-	Invoke-WebRequest -Uri 'https://github.com/adbertram/AutomateTheBoringStuffWithPowerShell/archive/master.zip' -OutFile $repoZipFile
+	$repoZipFile = "$PSScriptRoot\PowerLab.zip"
+	Invoke-WebRequest -Uri 'https://github.com/adbertram/powerlab/archive/master.zip' -OutFile $repoZipFile
 
 	$labModulePath = 'C:\Program Files\WindowsPowerShell\Modules'
-	$labRepoTempPath = "$env:Temp\AutomateTheBoringStuffWithPowerShell-master"
+	$labRepoTempPath = "$env:Temp\PowerLab-master"
 	Expand-Archive -Path $repoZipFile -DestinationPath ($labRepoTempPath | Split-Path -Parent) -Force
 
-	"$env:Temp\Lab", "$labModulePath\Lab", $repoZipFile | foreach {
+	"$env:Temp\PowerLab", "$labModulePath\PowerLab", $repoZipFile | foreach {
 		Remove-Item -Path $_ -ErrorAction Ignore -Recurse
 	}
 
-	$labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'Lab' -PassThru -Force
+	$labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'PowerLab' -PassThru -Force
 	Move-Item -Path $labModuleFolder.FullName -Destination $labModulePath -Force
 
 	$HostServerConfig = @{
@@ -296,23 +296,30 @@ try {
 		$null = cmdkey /add:($HostServerConfig.Name) /user:($HostServerConfig.Credential.UserName) /pass:($HostServerConfig.Credential.GetNetworkCredential().Password)
 	}
 
-	if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V' -Online) {
-		if ($hyperVFeature.State -ne 'Enabled') {
-			Write-Host 'Enabling the Hyper-V management features...'
-			$hyperVFeature | Enable-WindowsOptionalFeature -Online -All -NoRestart
-		}
-	} else {
-		throw 'Hyper-V Management Tools feature was not found. Are you on Windows 10?'
+	if (-not ($hyperVToolFeature = dism /online /get-features | select-string -Pattern 'Microsoft-Hyper-V-Management-PowerShell' -Context 1)) {
+		throw 'The required feature for Hyper-V is not installed. Did you install RSAT?'
+	} elseif ($hyperVToolFeature.Context.PostContext -notmatch 'Enabled') {
+		Write-Host 'Enabling the Hyper-V management features. This may take a few minutes...'
+		$null = dism /online /Enable-Feature /FeatureName:Microsoft-Hyper-V-Management-PowerShell /All
 	}
+
+	# if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V-Management-PowerShell' -Online) {
+	# 	if ($hyperVFeature.State -ne 'Enabled') {
+	# 		Write-Host 'Enabling the Hyper-V PowerShell management features...'
+	# 		$hyperVFeature | Enable-WindowsOptionalFeature -Online -All -NoRestart
+	# 	}
+	# } else {
+	# 	throw 'Hyper-V Management PowerShell feature was not found. Are you on Windows 10?'
+	# }
 
 	## Force Hyper-V module 1.1 to ensure Windows 10 can manage Hyper-V 2012
 	Import-Module Hyper-V -RequiredVersion 1.1 -Force
 
 	## Force import the module to ensure it imports OK and to give us the LabConfiguration variable	
-	Import-Module -Name 'Lab' -Force -ErrorAction Stop
+	Import-Module -Name 'PowerLab' -Force -ErrorAction Stop
 
-	Write-Host -Object 'Ensure all values in the Lab configuration file are valid and close the ISE when complete.'
-	Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe' -ArgumentList "$PSscriptRoot\LabConfiguration.psd1" -Wait
+	Write-Host -Object 'Ensure all values in the PowerLab configuration file are valid and close the ISE when complete.'
+	Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe' -ArgumentList "$PSscriptRoot\PowerLabConfiguration.psd1" -Wait
 
 	## Ensure all project folders, ISO and installer files are set
 	Write-Host 'Testing to ensure all LabConfiguration values are valid....'
