@@ -296,34 +296,17 @@ try {
 		$null = cmdkey /add:($HostServerConfig.Name) /user:($HostServerConfig.Credential.UserName) /pass:($HostServerConfig.Credential.GetNetworkCredential().Password)
 	}
 
-	if (-not ($hyperVToolFeature = dism /online /get-features | select-string -Pattern 'Microsoft-Hyper-V-Management-PowerShell' -Context 1)) {
-		throw 'The required feature for Hyper-V is not installed. Did you install RSAT?'
-	} elseif ($hyperVToolFeature.Context.PostContext -notmatch 'Enabled') {
-		Write-Host 'Enabling the Hyper-V management features. This may take a few minutes...'
-		$null = dism /online /Enable-Feature /FeatureName:Microsoft-Hyper-V-Management-PowerShell /All
-	}
-
-	# if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V-Management-PowerShell' -Online) {
-	# 	if ($hyperVFeature.State -ne 'Enabled') {
-	# 		Write-Host 'Enabling the Hyper-V PowerShell management features...'
-	# 		$hyperVFeature | Enable-WindowsOptionalFeature -Online -All -NoRestart
-	# 	}
-	# } else {
-	# 	throw 'Hyper-V Management PowerShell feature was not found. Are you on Windows 10?'
-	# }
-
-	## Force Hyper-V module 1.1 to ensure Windows 10 can manage Hyper-V 2012
-	Import-Module Hyper-V -RequiredVersion 1.1 -Force
-
-	## Force import the module to ensure it imports OK and to give us the LabConfiguration variable	
-	Import-Module -Name 'PowerLab' -Force -ErrorAction Stop
-
 	Write-Host -Object 'Ensure all values in the PowerLab configuration file are valid and close the ISE when complete.'
 	Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe' -ArgumentList "$PSscriptRoot\PowerLabConfiguration.psd1" -Wait
 
-	## Ensure all project folders, ISO and installer files are set
-	Write-Host 'Testing to ensure all LabConfiguration values are valid....'
-	$null = Test-Lab
+	if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V-Tools-All' -Online) {
+		if ($hyperVFeature.State -ne 'Enabled') {
+			Write-Host 'Enabling the Microsoft-Hyper-V-Tools-All features...'
+			$hyperVFeature | Enable-WindowsOptionalFeature -Online -All
+		}
+	} else {
+		throw 'Hyper-V Management PowerShell feature was not found. Are you on Windows 10?'
+	}
 
 	Write-Host -Object 'Lab setup is now complete.' -ForegroundColor Green
 } catch {
