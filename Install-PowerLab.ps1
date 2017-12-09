@@ -297,7 +297,7 @@ try {
 	}
 
 	Write-Host -Object 'Ensure all values in the PowerLab configuration file are valid and close the ISE when complete.'
-	Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe' -ArgumentList "$PSscriptRoot\PowerLabConfiguration.psd1" -Wait
+	Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe' -ArgumentList "$labModulePath\PowerLabConfiguration.psd1" -Wait
 
 	if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V-Tools-All' -Online) {
 		if ($hyperVFeature.State -ne 'Enabled') {
