@@ -229,6 +229,9 @@ try {
 		Add-PlHostEntry -HostName $hostServerConfig.Name -IpAddress $hostServerConfig.IPAddress
 	}
 
+	Write-Host -Object "Setting local NIC to private.."
+	Set-NetConnectionProfile -InterfaceAlias Ethernet -NetworkCategory Private  
+
 	Write-Host -Object 'Enabling PS remoting on local computer...'
 	$null = Enable-PSRemoting -Force -SkipNetworkProfileCheck
 
@@ -270,6 +273,7 @@ try {
 		Enable-NetFirewallRule -DisplayGroup 'Windows Remote Management'
 		Enable-NetFirewallRule -DisplayGroup 'Remote Event Log Management'
 		Enable-NetFirewallRule -DisplayGroup 'Remote Volume Management'
+		Enable-NetFirewallRule -DisplayGroup 'Windows Management Instrumentation (WMI)'
 		Set-Service VDS -StartupType Automatic
 	}
 	Invoke-Command -ComputerName $hostServerConfig.Name -Credential $hostServerConfig.Credential -ScriptBlock $sb
@@ -287,6 +291,9 @@ try {
 	Write-Host -Object 'Adding the ANONYMOUS LOGON user to the local machine and host server Distributed COM Users group for Hyper-V manager'
 	Invoke-Command -ComputerName $hostServerConfig.Name -Credential $hostServerConfig.Credential -ScriptBlock $sb
 	& $sb
+
+	Write-Host -Object "Enabling remote COM access on Hyper-V host"
+	Invoke-Command -ComputerName $hostServerConfig.Name -Credential $hostServerConfig.Credential -ScriptBlock { Set-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\COM3 -Name RemoteAccessEnabled -Value 1 }
 
 	Write-Host -Object 'Enabling applicable firewall rules on local machine...'
 	Enable-NetFirewallRule -DisplayGroup 'Remote Volume Management'

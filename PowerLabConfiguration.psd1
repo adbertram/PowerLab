@@ -94,7 +94,7 @@
 		}
 	}
 
-	## Define as many VM types as you want here. Calling New-Lab will use this to find all of the VMs you'd like to provision
+	## Define as many VM types as you want here. Calling New-PowerLab will use this to find all of the VMs you'd like to provision
 	## when building a new lab. When deploying more than one of a particular type of VM, the name here will be the base
 	## name ie. SQLSRV, SQLSRV2, SQLSRV3, etc.
 	VirtualMachines                     = @(

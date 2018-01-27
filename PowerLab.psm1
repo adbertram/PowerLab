@@ -8,7 +8,7 @@ $configFilePath = "$modulePath\PowerLabConfiguration.psd1"
 $script:LabConfiguration = Import-PowerShellDataFile -Path $configFilePath
 
 #endregion
-function New-Lab {
+function New-PowerLab {
 	[CmdletBinding()]
 	param (		
 		[Parameter()]
@@ -33,7 +33,7 @@ function New-Lab {
 		Write-Error  "$($_.Exception.Message) - Line Number: $($_.InvocationInfo.ScriptLineNumber)"
 	}
 }
-function Remove-Lab {
+function Remove-PowerLab {
 	[OutputType('void')]
 	[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 	param
@@ -86,7 +86,7 @@ function New-ActiveDirectoryForest {
 	$ErrorActionPreference = 'Stop'
 
 	## Build the VM
-	$vm = New-LabVm -Type 'Domain Controller' -PassThru
+	$vm = New-PowerLabVm -Type 'Domain Controller' -PassThru
 
 	## Grab config values from file
 	$forestConfiguration = $script:LabConfiguration.ActiveDirectoryConfiguration
@@ -129,7 +129,7 @@ function New-SqlServer {
 		Type     = 'SQL' 
 		PassThru = $true
 	}
-	$vm = New-LabVm @vmParams
+	$vm = New-PowerLabVm @vmParams
 	Install-SqlServer -ComputerName $vm.Name
 
 	if ($AddToDomain.IsPresent) {
@@ -163,7 +163,7 @@ function New-WebServer {
 		Type     = 'Web' 
 		PassThru = $true
 	}
-	$vm = New-LabVm @vmParams
+	$vm = New-PowerLabVm @vmParams
 	Install-IIS -ComputerName $vm.Name
 
 	if ($AddToDomain.IsPresent) {
@@ -412,7 +412,7 @@ function PrepareSqlServerInstallConfigFile {
 	Set-Content -Path $Path -Value $configContents
 	
 }
-function New-LabVm {
+function New-PowerLabVm {
 	[OutputType([void])]
 	[CmdletBinding()]
 	param
@@ -902,7 +902,7 @@ function NewVmIpAddress {
 	$ipBase, $randomLastOctet -join '.'
 	
 }
-function Get-LabVhd {
+function Get-PowerLabVhd {
 	[CmdletBinding()]
 	param
 	(
@@ -923,7 +923,7 @@ function Get-LabVhd {
 		$PSCmdlet.ThrowTerminatingError($_)
 	}
 }
-function Get-LabVm {
+function Get-PowerLabVm {
 	[CmdletBinding(DefaultParameterSetName = 'Name')]
 	param
 	(
@@ -1123,7 +1123,7 @@ function GetNextLabVmName {
 		throw "Unrecognize VM type: [$($Type)]"
 	}
 
-	if (-not ($highNumberVm = Get-LabVm -Type $Type | Select -ExpandProperty Name | Sort-Object -Descending | Select-Object -First 1)) {
+	if (-not ($highNumberVm = Get-PowerLabVm -Type $Type | Select -ExpandProperty Name | Sort-Object -Descending | Select-Object -First 1)) {
 		$nextNum = 1
 	} else {
 		[int]$highNum = [regex]::matches($highNumberVm, '(\d+)$').Groups[1].Value
