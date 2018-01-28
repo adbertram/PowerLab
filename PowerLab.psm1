@@ -112,7 +112,7 @@ function New-ActiveDirectoryForest {
 	$cred = New-PSCredential -UserName "$($forestConfiguration.DomainName)\$($credConfig.name)" -Password $credConfig.Password
 	AddCachedCredential -ComputerName $vm.Name -Credential $cred
 }
-function New-SqlServer {
+function New-PowerLabSqlServer {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param
@@ -130,7 +130,7 @@ function New-SqlServer {
 		PassThru = $true
 	}
 	$vm = New-PowerLabVm @vmParams
-	Install-SqlServer -ComputerName $vm.Name
+	Install-PowerLabSqlServer -ComputerName $vm.Name
 
 	if ($AddToDomain.IsPresent) {
 		$credConfig = $script:LabConfiguration.DefaultOperatingSystemConfiguration.Users.where({ $_.Name -ne 'Administrator' })
@@ -287,7 +287,7 @@ function NewIISWebsite {
 	InvokeVmCommand -ComputerName $ComputerName -ScriptBlock $scriptBlock
 
 }
-function Install-SqlServer {
+function Install-PowerLabSqlServer {
 	[OutputType([void])]
 	[CmdletBinding(SupportsShouldProcess)]
 	param

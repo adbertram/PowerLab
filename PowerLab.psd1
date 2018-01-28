@@ -6,7 +6,7 @@
 	CompanyName       = 'Adam the Automator, LLC'
 	PowerShellVersion = '5.0'
 	RequiredModules   = @(@{ModuleName='Hyper-V'; ModuleVersion='1.1' })
-	FunctionsToExport = 'New-PowerLab', 'Remove-PowerLab', 'New-ActiveDirectoryForest', 'New-SqlServer', 'New-WebServer', 'Get-PowerLabVm', 'Get-PowerLabVhd'
+	FunctionsToExport = 'New-PowerLab', 'Remove-PowerLab', 'New-ActiveDirectoryForest', 'New-PowerLabSqlServer', 'New-WebServer', 'Get-PowerLabVm', 'Get-PowerLabVhd'
 	FileList          = 'PowerLabConfiguration.psd1', 'Convert-WindowsImage.ps1', 'SQLServer.ini', 'Install-PowerLab.ps1', 'AutoUnattend'
 	PrivateData       = @{
 		PSData = @{
