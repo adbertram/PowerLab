@@ -204,20 +204,6 @@ function Add-TrustedHostComputer {
 #endregion
 
 try {
-	$repoZipFile = "$PSScriptRoot\PowerLab.zip"
-	Invoke-WebRequest -Uri 'https://github.com/adbertram/powerlab/archive/master.zip' -OutFile $repoZipFile
-
-	$labModulePath = 'C:\Program Files\WindowsPowerShell\Modules'
-	$labRepoTempPath = "$env:Temp\PowerLab-master"
-	Expand-Archive -Path $repoZipFile -DestinationPath ($labRepoTempPath | Split-Path -Parent) -Force
-
-	"$env:Temp\PowerLab", "$labModulePath\PowerLab", $repoZipFile | foreach {
-		Remove-Item -Path $_ -ErrorAction Ignore -Recurse
-	}
-
-	$labModuleFolder = Rename-Item -Path $labRepoTempPath -NewName 'PowerLab' -PassThru -Force
-	Move-Item -Path $labModuleFolder.FullName -Destination $labModulePath -Force
-
 	$HostServerConfig = @{
 		Name       = Read-Host -Prompt 'Name of your HYPERV host'
 		IPAddress  = Read-Host -Prompt 'IP address of your HYPERV host'
@@ -302,9 +288,6 @@ try {
 	if ((cmdkey /list:($HostServerConfig.Name)) -match '\* NONE \*') {
 		$null = cmdkey /add:($HostServerConfig.Name) /user:($HostServerConfig.Credential.UserName) /pass:($HostServerConfig.Credential.GetNetworkCredential().Password)
 	}
-
-	Write-Host -Object 'Ensure all values in the PowerLab configuration file are valid and close the ISE when complete.'
-	Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe' -ArgumentList "$labModulePath\PowerLabConfiguration.psd1" -Wait
 
 	if ($hyperVFeature = Get-WindowsOptionalFeature -FeatureName 'Microsoft-Hyper-V-Tools-All' -Online) {
 		if ($hyperVFeature.State -ne 'Enabled') {
